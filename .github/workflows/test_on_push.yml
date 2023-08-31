@@ -1,7 +1,12 @@
 name: Tests
 
 on:
-  push
+  pull_request:
+  workflow_dispatch:
+
+  # everyday at 3 am UTC
+  schedule:
+    - cron:  '0 3 * * *'  
 
 jobs:
 
