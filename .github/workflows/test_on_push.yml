@@ -1,4 +1,4 @@
-name: pybamm-param
+name: Tests
 
 on:
   push
@@ -56,7 +56,7 @@ jobs:
         python -m pip install --upgrade pip wheel setuptools
         python -m pip install nox
     
-    - name: Run unit tests (except GNU/Linux with Python 3.9)
+    - name: Run unit tests (except GNU/Linux with Python 3.11)
       if: matrix.os != 'ubuntu-latest' || matrix.python-version != 3.11
       run: nox -p "${{matrix.python-version}}" -s unit
 
