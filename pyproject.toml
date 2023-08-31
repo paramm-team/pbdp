@@ -1,0 +1,48 @@
+[build-system]
+requires = [
+    "hatchling>=1.6.0",
+]
+build-backend = "hatchling.build"
+
+[project]
+name = "dataprocessing"
+description = "A package for processing experimental data for batteries. Under development."
+readme = "README.md"
+license = "BSD-3-Clause"
+authors = [
+    { name = "Alexnadru Pascu, Ferran Brosa Planella, W. Dhammika Widanage", email = "Ferran.Brosa-Planella@warwick.ac.uk" },
+]
+dependencies = [
+    "pandas",
+    "numpy",
+    "chardet",
+    "openpyxl",
+    "plotly",
+]
+dynamic = [
+    "version",
+]
+
+[project.optional-dependencies]
+dev = [
+    "nox",
+    "coverage",
+    "black",
+    "flake8>=3",
+]
+docs = [
+    "guzzle-sphinx-theme",
+    "sphinx>=1.5",
+    "sphinx-rtd-theme",
+]
+deploy = [
+    "bump2version"
+]
+
+[tool.hatch.version]
+path = "src/version.py"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+]

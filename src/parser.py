@@ -6,9 +6,9 @@ import openpyxl
 import csv
 
 import pandas as pd
-from modules.states import add_state_label
-from modules.save import save_file
-from modules.plots import display_data, plot_current_voltage_diff
+from states import add_state_label
+from save import save_file
+from plots import display_data, plot_current_voltage_diff
 
 class Parser:
     """
