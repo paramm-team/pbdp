@@ -13,12 +13,7 @@ class TestOptimisationResult(unittest.TestCase):
         cycler_keywords = {
             "maccor": ["Cyc#", "Rec#", "TestTime"],
             "vmp3": ["mode", "(Q-Qo)/mA.h", "freq/Hz", "time/s", "Ecell/V"],
-            "bitrode": [
-                "Exclude",
-                "Total Time",
-                "Loop Counter#1",
-                "Amp-Hours"
-                ],
+            "bitrode": ["Exclude", "Total Time", "Loop Counter#1", "Amp-Hours"],
             "digatron": ["Step,", "AhAccu", "Prog Time"],
             "ivium": ["freq. /Hz", "Z1 /ohm"],
             "gamry": ["Pt\tT", "IERange"],
