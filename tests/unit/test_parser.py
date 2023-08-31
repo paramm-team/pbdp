@@ -1,62 +1,31 @@
 #
 # Tests for the Parser class
 #
-import pbparam
+import src
 
 import unittest
 
 
 class TestOptimisationResult(unittest.TestCase):
-    def test_optimisation_result_init(self):
-        optimisation_result = pbparam.OptimisationResult(
-            "x",
-            "success",
-            "message",
-            "fun",
-            "raw_result",
-            "optimisation_problem",
-        )
-        self.assertEqual(optimisation_result.x, "x")
-        self.assertEqual(optimisation_result.success, "success")
-        self.assertEqual(optimisation_result.message, "message")
-        self.assertEqual(optimisation_result.fun, "fun")
-        self.assertEqual(optimisation_result.raw_result, "raw_result")
-        self.assertEqual(
-            optimisation_result.optimisation_problem, "optimisation_problem"
-        )
-        self.assertIsNone(optimisation_result.solve_time)
+    def test_init(self):
+        parser = src.Parser()
 
-    def test_str(self):
-        optimisation_result = pbparam.OptimisationResult(
-            "x",
-            "success",
-            "message",
-            "fun",
-            "raw_result",
-            "optimisation_problem",
-        )
-
-        self.assertEqual(
-            optimisation_result.__str__(),
-            "\n             Optimal values: x\n        Cost function value: fun"
-            "\n                 Solve time: None\n                    Message: message"
-            "\n        ",
-        )
-
-    def test_plot(self):
-        optimisation_result = pbparam.OptimisationResult(
-            "x",
-            "success",
-            "message",
-            "fun",
-            "raw_result",
-            pbparam.BaseOptimisationProblem(
-                cost_function=pbparam.MLE()
-            ),
-        )
-
-        plot = optimisation_result.plot(testing=True)
-        self.assertIsNone(plot)
+        cycler_keywords = {
+            "maccor": ["Cyc#", "Rec#", "TestTime"],
+            "vmp3": ["mode", "(Q-Qo)/mA.h", "freq/Hz", "time/s", "Ecell/V"],
+            "bitrode": [
+                "Exclude",
+                "Total Time",
+                "Loop Counter#1",
+                "Amp-Hours"
+                ],
+            "digatron": ["Step,", "AhAccu", "Prog Time"],
+            "ivium": ["freq. /Hz", "Z1 /ohm"],
+            "gamry": ["Pt\tT", "IERange"],
+            "solatron": ["Time (s)", "Z' (Ohm)"],
+            "novonix": ["Potential (V)", "Cycle Number"],
+        }
+        self.assertDictEqual(parser.cycler_keywords, cycler_keywords)
 
 
 if __name__ == "__main__":

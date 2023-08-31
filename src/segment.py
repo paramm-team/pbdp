@@ -1,5 +1,5 @@
 import pandas as pd
-from states import find_cc_and_cv
+from .states import find_cc_and_cv
 
 def group_by_input_state(data: pd.DataFrame, input_str: str) -> list:
     """
