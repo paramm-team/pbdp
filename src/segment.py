@@ -1,5 +1,6 @@
 import pandas as pd
-from modules.states import find_cc_and_cv
+from .states import find_cc_and_cv
+
 
 def group_by_input_state(data: pd.DataFrame, input_str: str) -> list:
     """
@@ -14,9 +15,7 @@ def group_by_input_state(data: pd.DataFrame, input_str: str) -> list:
     """
     if input_str == "battery":
         # Group the DataFrame by consecutive values in "Battery State" column
-        groups = (
-            data["Battery State"] != data["Battery State"].shift()
-            ).cumsum()
+        groups = (data["Battery State"] != data["Battery State"].shift()).cumsum()
         grouped_df = data.groupby(groups)
         group_list = [group for _, group in grouped_df]
     elif input_str == "CCCV":
@@ -32,13 +31,13 @@ def group_by_input_state(data: pd.DataFrame, input_str: str) -> list:
 
 
 def find_periods(
-        data: pd.DataFrame,
-        first: str,
-        second: str = None,
-        curr: float = None,
-        volt: float = None,
-        pulse_t: int = 5
-    ) -> list:
+    data: pd.DataFrame,
+    first: str,
+    second: str = None,
+    curr: float = None,
+    volt: float = None,
+    pulse_t: int = 5,
+) -> list:
     """
     Find periods based on specified input states.
 
@@ -56,59 +55,48 @@ def find_periods(
     print(first, second, curr, volt)
     # Identify the start and end of first input periods
     if first in ["rest", "charging", "discharging"]:
-        if curr == None:
+        if curr is None:
             first_mask = data["Battery State"] == first
         else:
-            first_mask = (
-                (data["Battery State"] == first) & 
-                (data["Current [A]"].round(2) == curr)
-            )            
+            first_mask = (data["Battery State"] == first) & (
+                data["Current [A]"].round(2) == curr
+            )
     elif first in ["cc", "cv"]:
         if first == "cc":
-            if curr == None:
+            if curr is None:
                 first_mask = data["CCCV"] == "CC"
             else:
-                first_mask = (
-                    (data["CCCV"] == "CC") & 
-                    (data["Current [A]"].round(2) == curr)
+                first_mask = (data["CCCV"] == "CC") & (
+                    data["Current [A]"].round(2) == curr
                 )
         elif first == "cv":
-            if volt == None:
+            if volt is None:
                 first_mask = data["CCCV"] == "CV"
             else:
-                first_mask = (
-                    (data["CCCV"] == "CV") & 
-                    (data["Voltage Full [V]"].round(2) == volt)
+                first_mask = (data["CCCV"] == "CV") & (
+                    data["Voltage Full [V]"].round(2) == volt
                 )
     elif first == "cccv":
-        if curr == None:
-            first_mask = (
-            (data["CCCV"] == "CC") &
-            (data["Battery State"] == "charging")
-            )
+        if curr is None:
+            first_mask = (data["CCCV"] == "CC") & (data["Battery State"] == "charging")
         else:
             first_mask = (
-            (data["CCCV"] == "CC") &
-            (data["Battery State"] == "charging") &
-            (data["Current [A]"].round(2) == curr)
+                (data["CCCV"] == "CC")
+                & (data["Battery State"] == "charging")
+                & (data["Current [A]"].round(2) == curr)
             )
     elif first == "pulse":
-        if curr == None:
-            first_mask = (data["CCCV"] == "CC")
+        if curr is None:
+            first_mask = data["CCCV"] == "CC"
         else:
-            first_mask = (
-                (data["CCCV"] == "CC") &
-                (data["Current [A]"].round(2) == curr)
-            )
+            first_mask = (data["CCCV"] == "CC") & (data["Current [A]"].round(2) == curr)
     else:
         return "None provided"
 
     start_indices_first = data.index[
         (first_mask) & (~first_mask.shift(1).fillna(False))
     ]
-    end_indices_first = data.index[
-        (first_mask) & (~first_mask.shift(-1).fillna(False))
-    ]
+    end_indices_first = data.index[(first_mask) & (~first_mask.shift(-1).fillna(False))]
 
     if first == "pulse":
         pulse_indices = [
@@ -126,41 +114,35 @@ def find_periods(
     first_indices = list(zip(start_indices_first, end_indices_first))
 
     if first == "cccv":
-        if volt == None:
-            second_mask = (
-                (data["CCCV"] == "CV") &
-                (data["Battery State"] == "charging")
-            )
+        if volt is None:
+            second_mask = (data["CCCV"] == "CV") & (data["Battery State"] == "charging")
         else:
             second_mask = (
-                (data["CCCV"] == "CV") &
-                (data["Battery State"] == "charging") &
-                (data["Voltage Full [V]"].round(2) == volt)
+                (data["CCCV"] == "CV")
+                & (data["Battery State"] == "charging")
+                & (data["Voltage Full [V]"].round(2) == volt)
             )
     if second in ["rest", "charging", "discharging"]:
-        if volt == None:
+        if volt is None:
             second_mask = data["Battery State"] == second
         else:
-            second_mask = (
-                (data["Battery State"] == second) & 
-                (data["Current [A]"].round(2) == volt)
+            second_mask = (data["Battery State"] == second) & (
+                data["Current [A]"].round(2) == volt
             )
     elif second in ["cc", "cv"]:
         if second == "cc":
-            if curr == None:
+            if curr is None:
                 second_mask = data["CCCV"] == "CC"
             else:
-                second_mask = (
-                    (data["CCCV"] == "CC") & 
-                    (data["Current [A]"].round(2) == curr)
+                second_mask = (data["CCCV"] == "CC") & (
+                    data["Current [A]"].round(2) == curr
                 )
         elif second == "cv":
-            if volt == None:
+            if volt is None:
                 second_mask = data["CCCV"] == "CV"
             else:
-                second_mask = (
-                    (data["CCCV"] == "CV") & 
-                    (data["Voltage Full [V]"].round(2) == volt)
+                second_mask = (data["CCCV"] == "CV") & (
+                    data["Voltage Full [V]"].round(2) == volt
                 )
     # Identify the start and end of second input periods
     start_indices_second = data.index[
@@ -181,13 +163,14 @@ def find_periods(
 
     return periods
 
+
 def segment_data(data: pd.DataFrame, requests: list) -> list:
     """
     Segments the battery data based on the provided requests.
 
     Args:
         data (pd.DataFrame): The input DataFrame containing battery data.
-        requests (list): A list of strings specifying the segments to be 
+        requests (list): A list of strings specifying the segments to be
                         extracted.
 
     Returns:
@@ -232,15 +215,14 @@ def segment_data(data: pd.DataFrame, requests: list) -> list:
                     volt = float(sub_request.split("amp")[0].split(" ")[2])
             filtered_df_list.extend(
                 find_periods(data, first_request, second_request, curr, volt)
-                )
+            )
             continue
 
         # Process each sub-request
         elif "rest" in sub_request:
             df_list = group_by_input_state(data, "battery")
             filtered_df_list.extend(
-                [group for group in df_list 
-                    if "rest" in group["Battery State"].values]
+                [group for group in df_list if "rest" in group["Battery State"].values]
             )
         elif "charging" in sub_request:
             # Segment based on charging state
@@ -336,16 +318,12 @@ def segment_data(data: pd.DataFrame, requests: list) -> list:
                     cccv_V = float(sub_request.split("V")[0].split(" ")[2])
                 else:
                     cccv_V = float(sub_request.split("V")[0].split(" ")[1])
-            filtered_df_list.extend(
-                find_periods(data, "cccv", None, cccv_A, cccv_V)
-            )
+            filtered_df_list.extend(find_periods(data, "cccv", None, cccv_A, cccv_V))
         elif "pulse" in sub_request:
             # Segment based on pulse values
             if "A" in sub_request:
                 pulse_A = float(sub_request.split("A")[0].split(" ")[1])
-                filtered_df_list.extend(
-                    find_periods(data, "pulse", None, pulse_A)
-                )
+                filtered_df_list.extend(find_periods(data, "pulse", None, pulse_A))
             else:
                 # Segment all pulse periods
                 filtered_df_list.extend(find_periods(data, "pulse"))
@@ -355,9 +333,7 @@ def segment_data(data: pd.DataFrame, requests: list) -> list:
                 step = int(sub_request.split(":")[1])
                 last_step = data["Step Number"].max()
                 if step > last_step:
-                    filtered_df_list.extend(
-                        data[data["Step Number"] == last_step]
-                        )
+                    filtered_df_list.extend(data[data["Step Number"] == last_step])
                 else:
                     filtered_df_list.extend(data[data["Step Number"] == step])
             else:
@@ -381,6 +357,7 @@ def segment_data(data: pd.DataFrame, requests: list) -> list:
                 filtered_df_list.extend(data)
 
     return filtered_df_list
-    
+
+
 def find_rest(data: pd.DataFrame, period: pd.DataFrame) -> pd.DataFrame:
     return 0

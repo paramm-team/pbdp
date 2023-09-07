@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+
 def plot_current_voltage_diff(data: pd.DataFrame) -> None:
     """
     Plot the current and voltage differences over time.
@@ -21,9 +22,7 @@ def plot_current_voltage_diff(data: pd.DataFrame) -> None:
 
     # Compute difference between consecutive elements for Current and Voltage
     diff_current = data["Current [A]"].diff()
-    diff_voltage = (
-        data["Voltage Full [V]"].diff() + data["Voltage Full [V]"].median()
-        )
+    diff_voltage = data["Voltage Full [V]"].diff() + data["Voltage Full [V]"].median()
 
     # Create a 1x2 grid of subplots
     fig = make_subplots(rows=1, cols=2)
@@ -85,6 +84,7 @@ def plot_current_voltage_diff(data: pd.DataFrame) -> None:
 
     # Show the plot
     fig.show()
+
 
 def display_data(data: pd.DataFrame) -> None:
     """

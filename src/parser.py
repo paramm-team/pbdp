@@ -6,9 +6,10 @@ import openpyxl
 import csv
 
 import pandas as pd
-from modules.states import add_state_label
-from modules.save import save_file
-from modules.plots import display_data, plot_current_voltage_diff
+from .states import add_state_label
+from .save import save_file
+from .plots import display_data, plot_current_voltage_diff
+
 
 class Parser:
     """
@@ -36,7 +37,7 @@ class Parser:
         standard_headers: dict = {},
     ):
         """
-        Initialize the class with optional parameters for configuring data 
+        Initialize the class with optional parameters for configuring data
         processing.
 
         Args:
@@ -50,18 +51,13 @@ class Parser:
 
         # Initialize the class variables based on provided arguments.
         # Data header row options to terminate meta info. NOTE: enter unique
-        # names provided by the cycler and not generic e.g. "TestTime" 
+        # names provided by the cycler and not generic e.g. "TestTime"
         # instead of "time"
         self.cycler_keywords = (
             {
                 "maccor": ["Cyc#", "Rec#", "TestTime"],
                 "vmp3": ["mode", "(Q-Qo)/mA.h", "freq/Hz", "time/s", "Ecell/V"],
-                "bitrode": [
-                    "Exclude",
-                    "Total Time",
-                    "Loop Counter#1",
-                    "Amp-Hours"
-                    ],
+                "bitrode": ["Exclude", "Total Time", "Loop Counter#1", "Amp-Hours"],
                 "digatron": ["Step,", "AhAccu", "Prog Time"],
                 "ivium": ["freq. /Hz", "Z1 /ohm"],
                 "gamry": ["Pt\tT", "IERange"],
@@ -207,13 +203,14 @@ class Parser:
             ]
 
             if not files:
-                raise ValueError(f"""No files found in the directory: 
-                                {path_or_file}""")
+                raise ValueError(
+                    f"""No files found in the directory:
+                                {path_or_file}"""
+                )
             return files
         else:
             # If the input is neither a file nor a directory
             raise ValueError(f"Invalid path or file: {path_or_file}")
-        
 
     def convert_xlsx_to_csv(self, file_path: str) -> str:
         """
@@ -245,14 +242,14 @@ class Parser:
 
     def find_words(self, file_path: str) -> tuple:
         """
-        Find specific keywords in a file and return the starting position of 
+        Find specific keywords in a file and return the starting position of
         the match.
 
         Args:
             file_path (str): The path to the file to search for keywords.
 
         Returns:
-            tuple: A tuple containing the starting position of the match and 
+            tuple: A tuple containing the starting position of the match and
                     the encoding of the file.
         """
         # Check if the file is in xlsx format and convert if necessary
@@ -285,12 +282,7 @@ class Parser:
             # If no match is found, raise an exception
             raise ValueError(f"No keywords found in file: {file_path}")
 
-    def split_file(
-        self,
-        pointer: int,
-        file_path: str,
-        save_option: str
-    ) -> tuple:
+    def split_file(self, pointer: int, file_path: str, save_option: str) -> tuple:
         """
         Split a file into two parts based on a pointer position and save them
         as separate files.
@@ -299,7 +291,7 @@ class Parser:
             pointer (int): The position in the file where the split should
                              occur.
             file_path (str): The path to the file to split.
-            save_option (str): The option for saving the split files 
+            save_option (str): The option for saving the split files
                                 ("save all" or "save first").
 
         Returns:
@@ -354,17 +346,14 @@ class Parser:
                 os.remove(file_path)
 
             return (metadata, data)
-        
+
         else:
             if "converted_temporary.csv" in os.path.basename(file_path):
                 os.remove(file_path)
             return (metadata, data)
 
     def read_data_to_pandas(
-        self,
-        data: bytes,
-        filepath: str,
-        encoding: str
+        self, data: bytes, filepath: str, encoding: str
     ) -> pd.DataFrame:
         """
         Read data from a bytes object into a Pandas DataFrame.
@@ -487,7 +476,9 @@ class Parser:
 
         if "Step Number" in data.columns:
             # Drop rows from threshold index to the end of the DataFrame
-            diff_threshold = 5  # You can adjust this threshold based on the data NOT IMPLEMENTED YET
+            diff_threshold = (
+                5  # You can adjust this threshold based on the data NOT IMPLEMENTED YET
+            )
             t_index = (data["Step Number"].diff() > diff_threshold).idxmax()
             data = data.iloc[:t_index]
 
@@ -513,9 +504,9 @@ class Parser:
         Import, process, and optionally save and/or print battery data.
 
         Args:
-            path_or_file (str): Path to a directory or file containing battery 
+            path_or_file (str): Path to a directory or file containing battery
                                 data.
-            file_type (str, optional): The type of file to save as. Defaults to 
+            file_type (str, optional): The type of file to save as. Defaults to
                                         "csv".
             save_option (str, optional): Option for saving files. Defaults to
                                         "save".

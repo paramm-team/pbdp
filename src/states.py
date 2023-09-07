@@ -1,9 +1,7 @@
 import pandas as pd
 
-def add_state_label(
-        data: pd.DataFrame,
-        current_epsilon: float = 0.001
-    ) -> pd.DataFrame:
+
+def add_state_label(data: pd.DataFrame, current_epsilon: float = 0.001) -> pd.DataFrame:
     """
     Add battery state labels to the DataFrame based on current values.
 
@@ -40,13 +38,14 @@ def add_state_label(
 
     return data
 
+
 def find_cc_and_cv(
     data: pd.DataFrame,
     current_epsilon: float = 0.001,
     voltage_epsilon: float = 0.001,
     time_t: float = 10.0,
     rest_t: int = 8,
-    cc_t: int = 5
+    cc_t: int = 5,
 ) -> pd.DataFrame:
     """
     Identify constant current (CC) and constant voltage (CV) periods in the
@@ -95,8 +94,7 @@ def find_cc_and_cv(
     CC_mask = data["CCCV"] == "CC"
     # Group rows with constant voltage values
     cv_intervals = data[~rest_mask].groupby(
-        data[~CC_mask]["Voltage Full [V]"]
-        .diff().abs().gt(voltage_epsilon).cumsum()
+        data[~CC_mask]["Voltage Full [V]"].diff().abs().gt(voltage_epsilon).cumsum()
     )
 
     # Loop over each constant voltage interval and update columns
