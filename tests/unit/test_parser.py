@@ -9,6 +9,8 @@ import unittest
 
 class TestOptimisationResult(unittest.TestCase):
     def test_init_default(self):
+        """Test the init method with default settings"""
+
         # Check default settings
         parser = src.Parser()
 
@@ -120,6 +122,8 @@ class TestOptimisationResult(unittest.TestCase):
         self.assertDictEqual(parser.standard_headers, standard_headers)
 
     def test_init_custom(self):
+        """Test the init method with custom settings"""
+
         # Check custom settings
         cycler_keywords = {"test": ["a", "b", "c"]}
         standard_time = ["a", "b", "c"]
@@ -138,6 +142,7 @@ class TestOptimisationResult(unittest.TestCase):
         self.assertDictEqual(parser.standard_headers, standard_headers)
 
     def test_look_for_files(self):
+        """Test the look_for_files method"""
         parser = src.Parser()
 
         # Check wrong path
@@ -163,22 +168,67 @@ class TestOptimisationResult(unittest.TestCase):
 
         # Check directory
         files = parser.look_for_files(path)
-        self.assertEqual(len(files), 4)
+        self.assertEqual(len(files), 5)
 
         # Check empty directory
         with self.assertRaisesRegex(ValueError, "No files"):
             parser.look_for_files(os.path.join(path, "empty"))
 
     def test_convert_xlsx_to_csv(self):
+        """Test the convert_xlsx_to_csv method"""
         pass
 
     def test_find_words(self):
-        pass
+        """Test the find_words method"""
+        parser = src.Parser()
+
+        # Test it returns expected position and encoding for known file
+        path = os.path.join(
+            src.__path__[0],
+            "input",
+            "data",
+            "Maccor.csv",
+        )
+        pos, encoding = parser.find_words(path)
+
+        self.assertEqual(pos, 593)
+        self.assertEqual(encoding, "ascii")
 
     def test_split_file(self):
-        pass
+        """Test the split_file method"""
+        path = os.path.join(
+            src.__path__[0],
+            "input",
+            "data",
+        )
+        
+        parser = src.Parser()
+
+        # Check pre_processed folder does not exist
+        self.assertFalse(os.path.exists(os.path.join(path, "pre_processed")))
+
+        # Check split file works with save first
+        output = parser.split_file(2, os.path.join(path, "test1.csv"), "save first")
+        self.assertEqual(output, (b"ab", b"cd"))
+
+        # Check split file does not save to pre_processed folder
+        self.assertFalse(os.path.exists(os.path.join(path, "pre_processed")))
+
+        # Check split file works with save all
+        output = parser.split_file(2, os.path.join(path, "test1.csv"), "save all")
+        self.assertEqual(output, (b"ab", b"cd"))
+
+        # Check split file saves to pre_processed folder
+        self.assertTrue(os.path.exists(os.path.join(path, "pre_processed", "test1_data.csv")))
+        self.assertTrue(os.path.exists(os.path.join(path, "pre_processed", "test1_metadata.txt")))
+
+        # Clean up
+        os.remove(os.path.join(path, "pre_processed", "test1_data.csv"))
+        os.remove(os.path.join(path, "pre_processed", "test1_metadata.txt"))
+        os.removedirs(os.path.join(path, "pre_processed"))
 
     def test_read_data_to_pandas(self):
+        """Test the read_data_to_pandas method"""
         pass
 
     def test_change_units(self):
