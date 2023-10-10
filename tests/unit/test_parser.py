@@ -2,6 +2,7 @@
 # Tests for the Parser class
 #
 import src
+import os
 
 import unittest
 
@@ -143,7 +144,54 @@ class TestOptimisationResult(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Invalid path"):
             parser.look_for_files("")
 
-        # TODO: implement other tests once we know which data we want to share
+        path = os.path.join(
+            src.__path__[0],
+            "input",
+            "data",
+        )
+
+        # Check single file
+        files = parser.look_for_files(os.path.join(path, "Maccor.csv"))
+        self.assertEqual(
+            files,
+            [os.path.join(path, "Maccor.csv")],
+        )
+
+        # Check empty file
+        with self.assertRaisesRegex(ValueError, "Empty file"):
+            parser.look_for_files(os.path.join(path, "empty.txt"))
+
+        # Check directory
+        files = parser.look_for_files(path)
+        self.assertEqual(len(files), 4)
+
+        # Check empty directory
+        with self.assertRaisesRegex(ValueError, "No files"):
+            parser.look_for_files(os.path.join(path, "empty"))
+
+    def test_convert_xlsx_to_csv(self):
+        pass
+
+    def test_find_words(self):
+        pass
+
+    def test_split_file(self):
+        pass
+
+    def test_read_data_to_pandas(self):
+        pass
+
+    def test_change_units(self):
+        pass
+
+    def test_change_headers(self):
+        pass
+
+    def test_remove_unwanted(self):
+        pass
+
+    def test_data_importer(self):
+        pass
 
 
 if __name__ == "__main__":
