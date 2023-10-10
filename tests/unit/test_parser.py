@@ -171,8 +171,12 @@ class TestOptimisationResult(unittest.TestCase):
         self.assertEqual(len(files), 5)
 
         # Check empty directory
+        os.makedirs(os.path.join(path, "empty"))
+
         with self.assertRaisesRegex(ValueError, "No files"):
             parser.look_for_files(os.path.join(path, "empty"))
+        
+        os.removedirs(os.path.join(path, "empty"))
 
     def test_convert_xlsx_to_csv(self):
         """Test the convert_xlsx_to_csv method"""
