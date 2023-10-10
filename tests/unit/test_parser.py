@@ -175,7 +175,7 @@ class TestOptimisationResult(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "No files"):
             parser.look_for_files(os.path.join(path, "empty"))
-        
+
         os.removedirs(os.path.join(path, "empty"))
 
     def test_convert_xlsx_to_csv(self):
