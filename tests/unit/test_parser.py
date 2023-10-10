@@ -201,7 +201,7 @@ class TestOptimisationResult(unittest.TestCase):
             "input",
             "data",
         )
-        
+
         parser = src.Parser()
 
         # Check pre_processed folder does not exist
@@ -219,8 +219,12 @@ class TestOptimisationResult(unittest.TestCase):
         self.assertEqual(output, (b"ab", b"cd"))
 
         # Check split file saves to pre_processed folder
-        self.assertTrue(os.path.exists(os.path.join(path, "pre_processed", "test1_data.csv")))
-        self.assertTrue(os.path.exists(os.path.join(path, "pre_processed", "test1_metadata.txt")))
+        self.assertTrue(
+            os.path.exists(os.path.join(path, "pre_processed", "test1_data.csv"))
+        )
+        self.assertTrue(
+            os.path.exists(os.path.join(path, "pre_processed", "test1_metadata.txt"))
+        )
 
         # Clean up
         os.remove(os.path.join(path, "pre_processed", "test1_data.csv"))
