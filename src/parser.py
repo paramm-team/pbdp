@@ -55,7 +55,7 @@ class Parser:
         # instead of "time"
         self.cycler_keywords = (
             {
-                "maccor": ["Cyc#", "Rec#", "TestTime"],
+                "maccor": ["Cyc#", "Rec#", "TestTime", "Rec"],
                 "vmp3": ["mode", "(Q-Qo)/mA.h", "freq/Hz", "time/s", "Ecell/V"],
                 "bitrode": ["Exclude", "Total Time", "Loop Counter#1", "Amp-Hours"],
                 "digatron": ["Step,", "AhAccu", "Prog Time"],
@@ -70,8 +70,8 @@ class Parser:
 
         # Define the standard time columns
         self.standard_time = (
-            ["Total Time, (h:m:s)", "Run Time (h)", "TestTime"]
-            if len(standard_time) == 0
+            ["Total Time, (h:m:s)", "Run Time (h)"]
+            if bool(standard_time) is False
             else standard_time
         )
 
@@ -420,8 +420,7 @@ class Parser:
                     data[col] = data[col] * 3600
                 else:
                     # Convert a string representing a time duration to seconds
-                    time_delta = pd.to_timedelta(data[col])
-                    data[col] = time_delta.total_seconds()
+                    data[col] = pd.to_timedelta(data[col]).dt.total_seconds()
 
         return data
 
@@ -480,7 +479,8 @@ class Parser:
                 5  # You can adjust this threshold based on the data NOT IMPLEMENTED YET
             )
             t_index = (data["Step Number"].diff() > diff_threshold).idxmax()
-            data = data.iloc[:t_index]
+            if isinstance(t_index, int):
+                data = data.iloc[:t_index]
 
         # Get the column(s) with unnamed header and drop them
         unnamed_cols = data.columns[data.columns.str.contains("^Unnamed:")]

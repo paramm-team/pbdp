@@ -80,7 +80,7 @@ def find_cc_and_cv(
     )
 
     # Loop over each constant current interval and update columns
-    for i, group in cc_intervals:
+    for _, group in cc_intervals:
         if group["Time [s]"].iloc[-1] - group["Time [s]"].iloc[0] >= time_t:
             group_indices = group.index.tolist()
 
