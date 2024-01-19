@@ -99,7 +99,7 @@ class Parser:
                     "I/mA",
                     "Current, A",
                 ],
-                "Voltage Full [V]": [
+                "Voltage [V]": [
                     "Voltage V",
                     "Voltage",
                     "Vf",

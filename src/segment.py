@@ -119,7 +119,7 @@ def find_periods(
             second_mask = (
                 (data["CCCV"] == "CV")
                 & (data["Battery State"] == "charging")
-                & (data["Voltage Full [V]"].round(2) == volt)
+                & (data["Voltage [V]"].round(2) == volt)
             )
     if second in ["rest", "charging", "discharging"]:
         if volt is None:
@@ -141,7 +141,7 @@ def find_periods(
                 second_mask = data["CCCV"] == "CV"
             else:
                 second_mask = (data["CCCV"] == "CV") & (
-                    data["Voltage Full [V]"].round(2) == volt
+                    data["Voltage [V]"].round(2) == volt
                 )
     # Identify the start and end of second input periods
     start_indices_second = data.index[
@@ -295,10 +295,10 @@ def segment_data(data: pd.DataFrame, requests: list, reset: bool = False) -> lis
                 CV_V = float(sub_request.split("V")[0].split(" ")[1])
                 filtered_df_list.extend(
                     [
-                        group[group["Voltage Full [V]"].round(2) == CV_V]
+                        group[group["Voltage [V]"].round(2) == CV_V]
                         for group in df_list
                         if ("CV" in group["CCCV"].values)
-                        and (group["Voltage Full [V]"].round(2) == CV_V).any()
+                        and (group["Voltage [V]"].round(2) == CV_V).any()
                     ]
                 )
             else:
