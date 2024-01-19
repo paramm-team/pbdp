@@ -21,9 +21,13 @@ def plot_current_voltage_diff(data: pd.DataFrame) -> None:
 
     # Compute difference between consecutive elements for Current and Voltage
     diff_current = data["Current [A]"].diff()
+<<<<<<< Updated upstream:modules/plots.py
     diff_voltage = (
         data["Voltage Full [V]"].diff() + data["Voltage Full [V]"].median()
         )
+=======
+    diff_voltage = data["Voltage [V]"].diff() + data["Voltage [V]"].median()
+>>>>>>> Stashed changes:src/plots.py
 
     # Create a 1x2 grid of subplots
     fig = make_subplots(rows=1, cols=2)
@@ -56,9 +60,9 @@ def plot_current_voltage_diff(data: pd.DataFrame) -> None:
     fig.add_trace(
         go.Scatter(
             x=data["Time [s]"],
-            y=data["Voltage Full [V]"],
+            y=data["Voltage [V]"],
             mode="lines",
-            name="Voltage Full [V]",
+            name="Voltage [V]",
         ),
         row=1,
         col=2,
@@ -103,7 +107,7 @@ def display_data(data: pd.DataFrame) -> None:
     # Check if at least one required column is present
     required_cols = [
         "Current [A]",
-        "Voltage Full [V]",
+        "Voltage [V]",
         "Temperature [degC]",
         "Step Number",
     ]
