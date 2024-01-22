@@ -18,7 +18,7 @@ def add_state_label(data: pd.DataFrame, current_epsilon: float = 0.001) -> pd.Da
         ValueError: If required columns are not present in the DataFrame.
     """
     # Check if required columns are present in dataframe
-    required_cols = ["Current [A]", "Voltage Full [V]", "Time [s]"]
+    required_cols = ["Current [A]", "Voltage [V]", "Time [s]"]
     for col in required_cols:
         if col not in data.columns:
             raise ValueError(f"{col}, required column not found in dataframe")
@@ -80,7 +80,7 @@ def find_cc_and_cv(
     )
 
     # Loop over each constant current interval and update columns
-    for i, group in cc_intervals:
+    for _, group in cc_intervals:
         if group["Time [s]"].iloc[-1] - group["Time [s]"].iloc[0] >= time_t:
             group_indices = group.index.tolist()
 
@@ -94,7 +94,7 @@ def find_cc_and_cv(
     CC_mask = data["CCCV"] == "CC"
     # Group rows with constant voltage values
     cv_intervals = data[~rest_mask].groupby(
-        data[~CC_mask]["Voltage Full [V]"].diff().abs().gt(voltage_epsilon).cumsum()
+        data[~CC_mask]["Voltage [V]"].diff().abs().gt(voltage_epsilon).cumsum()
     )
 
     # Loop over each constant voltage interval and update columns

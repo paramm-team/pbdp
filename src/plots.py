@@ -15,14 +15,14 @@ def plot_current_voltage_diff(data: pd.DataFrame) -> None:
         ValueError: If required columns are not present in the DataFrame.
     """
     # Check if required columns are present in dataframe
-    required_cols = ["Current [A]", "Voltage Full [V]", "Time [s]"]
+    required_cols = ["Current [A]", "Voltage [V]", "Time [s]"]
     for col in required_cols:
         if col not in data.columns:
             raise ValueError(f"{col} column not found in dataframe")
 
     # Compute difference between consecutive elements for Current and Voltage
     diff_current = data["Current [A]"].diff()
-    diff_voltage = data["Voltage Full [V]"].diff() + data["Voltage Full [V]"].median()
+    diff_voltage = data["Voltage [V]"].diff() + data["Voltage [V]"].median()
 
     # Create a 1x2 grid of subplots
     fig = make_subplots(rows=1, cols=2)
@@ -55,9 +55,9 @@ def plot_current_voltage_diff(data: pd.DataFrame) -> None:
     fig.add_trace(
         go.Scatter(
             x=data["Time [s]"],
-            y=data["Voltage Full [V]"],
+            y=data["Voltage [V]"],
             mode="lines",
-            name="Voltage Full [V]",
+            name="Voltage [V]",
         ),
         row=1,
         col=2,
@@ -73,7 +73,7 @@ def plot_current_voltage_diff(data: pd.DataFrame) -> None:
         col=2,
     )
     # Set axis labels and title for the entire figure
-    fig.update_yaxes(title_text="Voltage Full [V]", row=1, col=2)
+    fig.update_yaxes(title_text="Voltage [V]", row=1, col=2)
 
     # Update the layout of the subplots for synchronization
     fig.update_xaxes(matches="x")
@@ -103,7 +103,7 @@ def display_data(data: pd.DataFrame) -> None:
     # Check if at least one required column is present
     required_cols = [
         "Current [A]",
-        "Voltage Full [V]",
+        "Voltage [V]",
         "Temperature [degC]",
         "Step Number",
     ]
