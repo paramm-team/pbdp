@@ -10,19 +10,20 @@ from modules.states import add_state_label
 from modules.save import save_file
 from modules.plots import display_data, plot_current_voltage_diff
 
+
 class Parser:
     """
     Class for parsing, processing, and analyzing battery data files.
 
     This class provides methods to import battery data from various file
-    formats, process the data by changing units and headers, and perform various
-    analyses and visualizations on the battery data.
+    formats, process the data by changing units and headers, and perform
+    various analyses and visualizations on the battery data.
 
     Attributes:
         cycler_keywords (dict): Dictionary containing keywords associated with
                                 different file types.
-        standard_units (dict): Dictionary containing unit conversion factors for
-                                 standard units.
+        standard_units (dict): Dictionary containing unit conversion factors
+                               for standard units.
         standard_time (list): List of standard time columns to be processed.
         standard_headers (dict): Dictionary mapping standard column headers to
                                     their variations.
@@ -36,7 +37,7 @@ class Parser:
         standard_headers: dict = {},
     ):
         """
-        Initialize the class with optional parameters for configuring data 
+        Initialize the class with optional parameters for configuring data
         processing.
 
         Args:
@@ -44,18 +45,19 @@ class Parser:
             standard_units (dict): Mapping of units to standardize column
                                     values.
             standard_time (list): List of standard time columns.
-            standard_headers (dict): Mapping of header variables to standardized
-                                     variables.
+            standard_headers (dict): Mapping of header variables to
+                                     standardized variables.
         """
 
         # Initialize the class variables based on provided arguments.
         # Data header row options to terminate meta info. NOTE: enter unique
-        # names provided by the cycler and not generic e.g. "TestTime" 
+        # names provided by the cycler and not generic e.g. "TestTime"
         # instead of "time"
         self.cycler_keywords = (
             {
                 "maccor": ["Cyc#", "Rec#", "TestTime"],
-                "vmp3": ["mode", "(Q-Qo)/mA.h", "freq/Hz", "time/s", "Ecell/V"],
+                "vmp3": ["mode", "(Q-Qo)/mA.h",
+                         "freq/Hz", "time/s", "Ecell/V"],
                 "bitrode": [
                     "Exclude",
                     "Total Time",
@@ -156,7 +158,8 @@ class Parser:
                     "Frequency (Hz)",
                 ],
                 "ReZ [Ohm]": ["Z1 /ohm", "Z' (Ohm)", "Re(Z)/Ohm", "Z' (Ohm)"],
-                "ImZ [Ohm]": ["Z2 /ohm", "Z'' (Ohm)", "Im(Z)/Ohm", "Z'' (Ohm)"],
+                "ImZ [Ohm]": ["Z2 /ohm", "Z'' (Ohm)",
+                              "Im(Z)/Ohm", "Z'' (Ohm)"],
                 "magZ [Ohm]": ["| Z | (Ohm)", "|Z|/Ohm"],
                 "phaseZ [deg]": ["Phase (Deg)", "Phase(Z)/deg"],
                 "Cycle Number": ["Cyc#", "Cycle Number", "cycle number"],
@@ -207,13 +210,12 @@ class Parser:
             ]
 
             if not files:
-                raise ValueError(f"""No files found in the directory: 
+                raise ValueError(f"""No files found in the directory:
                                 {path_or_file}""")
             return files
         else:
             # If the input is neither a file nor a directory
             raise ValueError(f"Invalid path or file: {path_or_file}")
-        
 
     def convert_xlsx_to_csv(self, file_path: str) -> str:
         """
@@ -245,14 +247,14 @@ class Parser:
 
     def find_words(self, file_path: str) -> tuple:
         """
-        Find specific keywords in a file and return the starting position of 
+        Find specific keywords in a file and return the starting position of
         the match.
 
         Args:
             file_path (str): The path to the file to search for keywords.
 
         Returns:
-            tuple: A tuple containing the starting position of the match and 
+            tuple: A tuple containing the starting position of the match and
                     the encoding of the file.
         """
         # Check if the file is in xlsx format and convert if necessary
@@ -299,7 +301,7 @@ class Parser:
             pointer (int): The position in the file where the split should
                              occur.
             file_path (str): The path to the file to split.
-            save_option (str): The option for saving the split files 
+            save_option (str): The option for saving the split files
                                 ("save all" or "save first").
 
         Returns:
@@ -354,7 +356,7 @@ class Parser:
                 os.remove(file_path)
 
             return (metadata, data)
-        
+
         else:
             if "converted_temporary.csv" in os.path.basename(file_path):
                 os.remove(file_path)
@@ -386,7 +388,8 @@ class Parser:
         # Determine file extension
         file_ext = os.path.splitext(filepath)[1]
 
-        # Read file using the appropriate Pandas function based on its extension
+        # Read file using the appropriate Pandas function based on it's
+        # extension
         if file_ext == ".csv":
             df = pd.read_csv(temp_file, encoding=encoding)
         elif file_ext == ".xlsx":
@@ -411,7 +414,8 @@ class Parser:
         data: pd.DataFrame,
     ) -> pd.DataFrame:
         """
-        Change units of selected columns in a DataFrame based on standard units.
+        Change units of selected columns in a DataFrame based on standard
+        units.
 
         Args:
             df (pd.DataFrame): The DataFrame containing data to be processed.
@@ -487,7 +491,8 @@ class Parser:
 
         if "Step Number" in data.columns:
             # Drop rows from threshold index to the end of the DataFrame
-            diff_threshold = 5  # You can adjust this threshold based on the data NOT IMPLEMENTED YET
+            diff_threshold = 5  # You can adjust this threshold based on the
+            # data NOT IMPLEMENTED YET
             t_index = (data["Step Number"].diff() > diff_threshold).idxmax()
             data = data.iloc[:t_index]
 
@@ -513,9 +518,9 @@ class Parser:
         Import, process, and optionally save and/or print battery data.
 
         Args:
-            path_or_file (str): Path to a directory or file containing battery 
+            path_or_file (str): Path to a directory or file containing battery
                                 data.
-            file_type (str, optional): The type of file to save as. Defaults to 
+            file_type (str, optional): The type of file to save as. Defaults to
                                         "csv".
             save_option (str, optional): Option for saving files. Defaults to
                                         "save".
