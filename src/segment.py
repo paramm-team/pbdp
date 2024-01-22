@@ -419,11 +419,11 @@ def reset_time(data: list) -> pd.DataFrame:
     """
     # Reset the Time column to start from 0 and keep the original one seperate
     if len(data) == 1:
-        data[0]["Original Time [s]"] = data["Time [s]"] 
+        data[0]["Original Time [s]"] = data["Time [s]"]
         data[0]["Time [s]"] = data["Time [s]"] - data["Time [s]"].iloc[0]
     else:
         for df in data:
-            df["Original Time [s]"] = df["Time [s]"] 
+            df["Original Time [s]"] = df["Time [s]"]
             df["Time [s]"] = df["Time [s]"] - df["Time [s]"].iloc[0]
     return data
 
