@@ -52,7 +52,6 @@ def find_periods(
     Returns:
         list: List of DataFrames representing the identified periods.
     """
-    print(first, second, curr, volt)
     # Identify the start and end of first input periods
     if first in ["rest", "charging", "discharging"]:
         if curr is None:
@@ -78,7 +77,9 @@ def find_periods(
                 )
     elif first == "cccv":
         if curr is None:
-            first_mask = (data["CCCV"] == "CC") & (data["Battery State"] == "charging")
+            first_mask = (
+                (data["CCCV"] == "CC") & (data["Battery State"] == "charging")
+            )
         else:
             first_mask = (
                 (data["CCCV"] == "CC")
@@ -120,7 +121,7 @@ def find_periods(
             second_mask = (
                 (data["CCCV"] == "CV")
                 & (data["Battery State"] == "charging")
-                & (data["Voltage Full [V]"].round(2) == volt)
+                & (data["Voltage [V]"].round(2) == volt)
             )
     if second in ["rest", "charging", "discharging"]:
         if volt is None:
@@ -142,7 +143,7 @@ def find_periods(
                 second_mask = data["CCCV"] == "CV"
             else:
                 second_mask = (data["CCCV"] == "CV") & (
-                    data["Voltage Full [V]"].round(2) == volt
+                    data["Voltage [V]"].round(2) == volt
                 )
     # Identify the start and end of second input periods
     start_indices_second = data.index[
@@ -164,7 +165,7 @@ def find_periods(
     return periods
 
 
-def segment_data(data: pd.DataFrame, requests: list) -> list:
+def segment_data(data: pd.DataFrame, requests: list, reset: bool = False) -> list:
     """
     Segments the battery data based on the provided requests.
 
@@ -291,15 +292,15 @@ def segment_data(data: pd.DataFrame, requests: list) -> list:
                 )
         elif "cv" in sub_request:
             # Segment based on constant voltage state
-            df_list = group_by_input_state("CCCV")
+            df_list = group_by_input_state(data, "CCCV")
             if "V" in sub_request:
                 CV_V = float(sub_request.split("V")[0].split(" ")[1])
                 filtered_df_list.extend(
                     [
-                        group[group["Voltage Full [V]"].round(2) == CV_V]
+                        group[group["Voltage [V]"].round(2) == CV_V]
                         for group in df_list
                         if ("CV" in group["CCCV"].values)
-                        and (group["Voltage Full [V]"].round(2) == CV_V).any()
+                        and (group["Voltage [V]"].round(2) == CV_V).any()
                     ]
                 )
             else:
@@ -330,34 +331,151 @@ def segment_data(data: pd.DataFrame, requests: list) -> list:
         # Segment based on step number
         elif "step" in sub_request:
             if ":" in sub_request:
-                step = int(sub_request.split(":")[1])
+                start_step, end_step = map(
+                    float, sub_request.split("step")[1].split(':')
+                )
+                if end_step < start_step:
+                    start_step, end_step = end_step, start_step
                 last_step = data["Step Number"].max()
-                if step > last_step:
-                    filtered_df_list.extend(data[data["Step Number"] == last_step])
+                if end_step > last_step and start_step > last_step:
+                    filtered_df_list.append(data[data["Step Number"] == last_step])
+                elif end_step > last_step:
+                    filtered_df_list.append(
+                        data[data["Step Number"].between(start_step, last_step)]
+                    )
                 else:
-                    filtered_df_list.extend(data[data["Step Number"] == step])
+                    filtered_df_list.append(
+                        data[data["Step Number"].between(start_step, end_step)]
+                    )
             else:
-                filtered_df_list.extend(data)
+                filtered_df_list.append(data)
         # Segment based on time
         elif "time" in sub_request:
             if "/" in sub_request:
-                start_time = float(sub_request.split("time")[1].split("/")[0])
-                stop_time = float(sub_request.split("/")[1])
+                start_time, stop_time = map(
+                    float, sub_request.split("time")[1].split('/')
+                )
                 end_time = data["Time [s]"].max()
-                if stop_time > end_time:
-                    filtered_df_list.extend(data[data["Time [s]"] == end_time])
+                if start_time > stop_time:
+                    start_time, stop_time = stop_time, start_time
+                if stop_time > end_time and start_time > end_time:
+                    filtered_df_list.append(
+                        data[data["Time [s]"] == end_time]
+                    )
+                elif stop_time > end_time:
+                    filtered_df_list.append(
+                        data[data["Time [s]"].between(start_time, end_time)]
+                    )
+                elif start_time == stop_time:
+                    filtered_df_list.append(
+                        data[data["Time [s]"].between(start_time, start_time + 1)]
+                    )
                 else:
-                    filtered_df_list.extend(
-                        data[
-                            (data["Time [s]"] >= start_time)
-                            & (data["Time [s]"] <= stop_time)
-                        ]
+                    filtered_df_list.append(
+                        data[data["Time [s]"].between(start_time, stop_time)]
                     )
             else:
                 filtered_df_list.extend(data)
+        elif "power" in sub_request:
+            # Segment based on power
+            data["Power [W]"] = data["Voltage Full [V]"] * data["Current [A]"]
+            #df_list = group_by_input_state(data, "Power")
+            df_list = data[~data["Current [A]"].abs().lt(0.001)].groupby(
+                data["Power [W]"].diff().abs().gt(0.01).cumsum()
+            )
+            if "W" in sub_request:
+                # Segment based on charging current
+                pwr_W = float(sub_request.split("W")[0].split(" ")[1])
+                for _, group in df_list:
+                    filtered_group = group[group["Power [W]"].round(2) == pwr_W]
+                    if not (
+                        filtered_group.empty and
+                        (filtered_group["Time [s]"].iloc[-1] -
+                         filtered_group["Time [s]"].iloc[0] >= 10)
+                    ):
+                        filtered_df_list.append(filtered_group)
+            else:
+                # Segment all power periods
+                filtered_df_list.append(data)
 
-    return filtered_df_list
+    if bool is True:
+        return reset_time(filtered_df_list)
+    else:
+        return filtered_df_list
 
 
-def find_rest(data: pd.DataFrame, period: pd.DataFrame) -> pd.DataFrame:
-    return 0
+def reset_time(data: list) -> pd.DataFrame:
+    """
+    Resets the 'Time [s]' column in each DataFrame in a list to start from 0,
+    while preserving the original time in a new column 'Original Time [s]'.
+
+    Args:
+        data (list): List of pandas DataFrames. Each DataFrame should have a 'Time [s]'
+                     column.
+
+    Returns:
+        list: List of the same DataFrames with the 'Time [s]' column reset and
+              'Original Time [s]' column added in each DataFrame.
+    """
+    # Reset the Time column to start from 0 and keep the original one seperate
+    if len(data) == 1:
+        data[0]["Original Time [s]"] = data["Time [s]"]
+        data[0]["Time [s]"] = data["Time [s]"] - data["Time [s]"].iloc[0]
+    else:
+        for df in data:
+            df["Original Time [s]"] = df["Time [s]"]
+            df["Time [s]"] = df["Time [s]"] - df["Time [s]"].iloc[0]
+    return data
+
+
+def find_rest(
+        data: pd.DataFrame,
+        segments: list,
+        current_epsilon: float = 0.001
+) -> list:
+    """
+    Finds and includes rest periods adjacent to each segment in a list based on a
+    current threshold.
+    This function processes each segment in the provided list and identifies rest
+    periods immediately
+    before and after the segment.
+
+    Args:
+        data (pd.DataFrame): The input DataFrame containing battery data with a
+                             'Current [A]' column.
+        segments (list): List of DataFrames, each representing a segment to process.
+        current_epsilon (float): Threshold for defining a rest period based on the
+                                 current. Defaults to 0.001.
+
+    Returns:
+        list: List of DataFrames, each including the original segment and its adjacent
+              rest periods.
+    """
+    def process_segment(segment: pd.DataFrame):
+        # Get the start and end indices of the segment and create a rest mask
+        rest_mask = data["Current [A]"].abs().lt(current_epsilon)
+        segment_start = segment.index.min()
+        segment_end = segment.index.max()
+
+        # Find indices where rest periods start and end
+        rest_change = rest_mask.ne(rest_mask.shift())
+        rest_starts = rest_change.index[rest_change & rest_mask]
+        rest_ends = rest_change.index[rest_change & ~rest_mask]
+
+        # Find the last rest period start before the segment and the first after
+        last_rest_start_before_segment = rest_starts[rest_starts < segment_start].max()
+        first_rest_end_after_segment = rest_ends[rest_ends > segment_end].min()
+
+        # Adjust start and end indices to include the rest periods
+        if pd.notna(last_rest_start_before_segment):
+            segment_start = last_rest_start_before_segment
+        if pd.notna(first_rest_end_after_segment):
+            segment_end = first_rest_end_after_segment - 1
+
+        # Return the updated segment including the adjacent rest periods
+        return data.loc[segment_start:segment_end]
+
+    # Process each segment in the list
+    updated_segments = [process_segment(segment) for segment in segments]
+
+    return updated_segments

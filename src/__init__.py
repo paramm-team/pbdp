@@ -6,4 +6,4 @@ from .version import __version__
 #
 # Parser
 #
-from .parser import Parser
+from .pbdp_parser import Parser
