@@ -1,6 +1,7 @@
 import os
 import pandas as pd
 
+
 def save_file(data: pd.DataFrame, file_type: str, file_path: str) -> str:
     """
     Save the cleaned DataFrame to the specified file type.

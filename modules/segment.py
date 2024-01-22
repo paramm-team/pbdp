@@ -1,6 +1,7 @@
 import pandas as pd
 from modules.states import find_cc_and_cv
 
+
 def group_by_input_state(data: pd.DataFrame, input_str: str) -> list:
     """
     Group the data based on a specific column value.
@@ -38,7 +39,7 @@ def find_periods(
         curr: float = None,
         volt: float = None,
         pulse_t: int = 5
-    ) -> list:
+) -> list:
     """
     Find periods based on specified input states.
 
@@ -56,44 +57,44 @@ def find_periods(
     print(first, second, curr, volt)
     # Identify the start and end of first input periods
     if first in ["rest", "charging", "discharging"]:
-        if curr == None:
+        if curr is None:
             first_mask = data["Battery State"] == first
         else:
             first_mask = (
-                (data["Battery State"] == first) & 
+                (data["Battery State"] == first) &
                 (data["Current [A]"].round(2) == curr)
-            )            
+            )
     elif first in ["cc", "cv"]:
         if first == "cc":
-            if curr == None:
+            if curr is None:
                 first_mask = data["CCCV"] == "CC"
             else:
                 first_mask = (
-                    (data["CCCV"] == "CC") & 
+                    (data["CCCV"] == "CC") &
                     (data["Current [A]"].round(2) == curr)
                 )
         elif first == "cv":
-            if volt == None:
+            if volt is None:
                 first_mask = data["CCCV"] == "CV"
             else:
                 first_mask = (
-                    (data["CCCV"] == "CV") & 
+                    (data["CCCV"] == "CV") &
                     (data["Voltage Full [V]"].round(2) == volt)
                 )
     elif first == "cccv":
-        if curr == None:
+        if curr is None:
             first_mask = (
-            (data["CCCV"] == "CC") &
-            (data["Battery State"] == "charging")
+                (data["CCCV"] == "CC") &
+                (data["Battery State"] == "charging")
             )
         else:
             first_mask = (
-            (data["CCCV"] == "CC") &
-            (data["Battery State"] == "charging") &
-            (data["Current [A]"].round(2) == curr)
+                (data["CCCV"] == "CC") &
+                (data["Battery State"] == "charging") &
+                (data["Current [A]"].round(2) == curr)
             )
     elif first == "pulse":
-        if curr == None:
+        if curr is None:
             first_mask = (data["CCCV"] == "CC")
         else:
             first_mask = (
@@ -126,52 +127,40 @@ def find_periods(
     first_indices = list(zip(start_indices_first, end_indices_first))
 
     if first == "cccv":
-        if volt == None:
+        if volt is None:
             second_mask = (
                 (data["CCCV"] == "CV") &
                 (data["Battery State"] == "charging")
             )
         else:
             second_mask = (
-<<<<<<< Updated upstream:modules/segment.py
-                (data["CCCV"] == "CV") &
-                (data["Battery State"] == "charging") &
-                (data["Voltage Full [V]"].round(2) == volt)
-=======
                 (data["CCCV"] == "CV")
                 & (data["Battery State"] == "charging")
                 & (data["Voltage [V]"].round(2) == volt)
->>>>>>> Stashed changes:src/segment.py
             )
     if second in ["rest", "charging", "discharging"]:
-        if volt == None:
+        if volt is None:
             second_mask = data["Battery State"] == second
         else:
             second_mask = (
-                (data["Battery State"] == second) & 
+                (data["Battery State"] == second) &
                 (data["Current [A]"].round(2) == volt)
             )
     elif second in ["cc", "cv"]:
         if second == "cc":
-            if curr == None:
+            if curr is None:
                 second_mask = data["CCCV"] == "CC"
             else:
                 second_mask = (
-                    (data["CCCV"] == "CC") & 
+                    (data["CCCV"] == "CC") &
                     (data["Current [A]"].round(2) == curr)
                 )
         elif second == "cv":
-            if volt == None:
+            if volt is None:
                 second_mask = data["CCCV"] == "CV"
             else:
-<<<<<<< Updated upstream:modules/segment.py
-                second_mask = (
-                    (data["CCCV"] == "CV") & 
-                    (data["Voltage Full [V]"].round(2) == volt)
-=======
                 second_mask = (data["CCCV"] == "CV") & (
                     data["Voltage [V]"].round(2) == volt
->>>>>>> Stashed changes:src/segment.py
                 )
     # Identify the start and end of second input periods
     start_indices_second = data.index[
@@ -192,13 +181,14 @@ def find_periods(
 
     return periods
 
+
 def segment_data(data: pd.DataFrame, requests: list) -> list:
     """
     Segments the battery data based on the provided requests.
 
     Args:
         data (pd.DataFrame): The input DataFrame containing battery data.
-        requests (list): A list of strings specifying the segments to be 
+        requests (list): A list of strings specifying the segments to be
                         extracted.
 
     Returns:
@@ -250,7 +240,7 @@ def segment_data(data: pd.DataFrame, requests: list) -> list:
         elif "rest" in sub_request:
             df_list = group_by_input_state(data, "battery")
             filtered_df_list.extend(
-                [group for group in df_list 
+                [group for group in df_list
                     if "rest" in group["Battery State"].values]
             )
         elif "charging" in sub_request:
@@ -315,9 +305,9 @@ def segment_data(data: pd.DataFrame, requests: list) -> list:
                 )
             else:
                 # Segment all constant current periods
-                filtered_df_list.extend(
-                    [group for group in df_list if "CC" in group["CCCV"].values]
-                )
+                filtered_df_list.extend([
+                    group for group in df_list if "CC" in group["CCCV"].values
+                    ])
         elif "cv" in sub_request:
             # Segment based on constant voltage state
             df_list = group_by_input_state("CCCV")
@@ -333,9 +323,9 @@ def segment_data(data: pd.DataFrame, requests: list) -> list:
                 )
             else:
                 # Segment all constant voltage periods
-                filtered_df_list.extend(
-                    [group for group in df_list if "CV" in group["CCCV"].values]
-                )
+                filtered_df_list.extend([
+                    group for group in df_list if "CV" in group["CCCV"].values
+                ])
         elif "cccv" in sub_request:
             # Segment based on cc values
             cccv_A = cccv_V = None
@@ -390,27 +380,30 @@ def segment_data(data: pd.DataFrame, requests: list) -> list:
                     )
             else:
                 filtered_df_list.extend(data)
-<<<<<<< Updated upstream:modules/segment.py
-=======
         elif "power" in sub_request:
             # Segment based on power
             data["Power [W]"] = data["Voltage [V]"] * data["Current [A]"]
-            #df_list = group_by_input_state(data, "Power")
+            # df_list = group_by_input_state(data, "Power")
             df_list = data[~data["Current [A]"].abs().lt(0.001)].groupby(
                     data["Power [W]"].diff().abs().gt(0.01).cumsum())
             if "W" in sub_request:
                 # Segment based on charging current
                 pwr_W = float(sub_request.split("W")[0].split(" ")[1])
                 for _, group in df_list:
-                    filtered_group = group[group["Power [W]"].round(2) == pwr_W]
-                    if not filtered_group.empty and (filtered_group["Time [s]"].iloc[-1] -filtered_group["Time [s]"].iloc[0] >= 10):
+                    filtered_group = group[
+                        group["Power [W]"].round(2) == pwr_W
+                    ]
+                    if not filtered_group.empty and (
+                        filtered_group["Time [s]"].iloc[-1] -
+                        filtered_group["Time [s]"].iloc[0] >= 10
+                    ):
                         filtered_df_list.append(filtered_group)
-            else:               
+            else:
                 # Segment all power periods
                 filtered_df_list.append(data)
->>>>>>> Stashed changes:src/segment.py
 
     return filtered_df_list
-    
+
+
 def find_rest(data: pd.DataFrame, period: pd.DataFrame) -> pd.DataFrame:
     return 0
