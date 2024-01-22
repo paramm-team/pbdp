@@ -3,3 +3,5 @@ pandas
 chardet
 openpyxl
 plotly
+nox
+matplotlib
