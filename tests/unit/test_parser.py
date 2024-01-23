@@ -1,7 +1,7 @@
 #
 # Tests for the Parser class
 #
-import src
+import pbdp
 import os
 
 import unittest
@@ -12,7 +12,7 @@ class TestOptimisationResult(unittest.TestCase):
         """Test the init method with default settings"""
 
         # Check default settings
-        parser = src.Parser()
+        parser = pbdp.Parser()
 
         # Check keywords
         cycler_keywords = {
@@ -129,7 +129,7 @@ class TestOptimisationResult(unittest.TestCase):
         standard_time = ["a", "b", "c"]
         standard_units = {"a": 1, "b": 2}
         standard_headers = {"a": ["b", "c"]}
-        parser = src.Parser(
+        parser = pbdp.Parser(
             cycler_keywords=cycler_keywords,
             standard_units=standard_units,
             standard_time=standard_time,
@@ -143,14 +143,14 @@ class TestOptimisationResult(unittest.TestCase):
 
     def test_look_for_files(self):
         """Test the look_for_files method"""
-        parser = src.Parser()
+        parser = pbdp.Parser()
 
         # Check wrong path
         with self.assertRaisesRegex(ValueError, "Invalid path"):
             parser.look_for_files("")
 
         path = os.path.join(
-            src.__path__[0],
+            pbdp.__path__[0],
             "input",
             "data",
         )
@@ -184,11 +184,11 @@ class TestOptimisationResult(unittest.TestCase):
 
     def test_find_words(self):
         """Test the find_words method"""
-        parser = src.Parser()
+        parser = pbdp.Parser()
 
         # Test it returns expected position and encoding for known file
         path = os.path.join(
-            src.__path__[0],
+            pbdp.__path__[0],
             "input",
             "data",
             "Maccor.csv",
@@ -201,12 +201,12 @@ class TestOptimisationResult(unittest.TestCase):
     def test_split_file(self):
         """Test the split_file method"""
         path = os.path.join(
-            src.__path__[0],
+            pbdp.__path__[0],
             "input",
             "data",
         )
 
-        parser = src.Parser()
+        parser = pbdp.Parser()
 
         # Check pre_processed folder does not exist
         self.assertFalse(os.path.exists(os.path.join(path, "pre_processed")))

@@ -1,8 +1,8 @@
-import src
-from src import segment
+import pbdp
+from pbdp import segment
 import pandas as pd
 
-parser = src.Parser()
+parser = pbdp.Parser()
 data = pd.read_csv(
     "./src/input/data/processed/Digatron_cleaned_data.csv"
 )
