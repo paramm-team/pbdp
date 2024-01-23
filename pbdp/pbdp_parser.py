@@ -254,7 +254,7 @@ class Parser:
                     the encoding of the file.
         """
         # Check if the file is in xlsx format and convert if necessary
-        if file_path.endswith(".xlsx"):
+        if file_path.suffix == ".xlsx":
             file_path = self.convert_xlsx_to_csv(file_path)
 
         # Read the contents of the file and detect the encoding
@@ -301,7 +301,7 @@ class Parser:
         name = file_path
 
         # Check if the file is in xlsx format and convert if necessary
-        if file_path.endswith(".xlsx"):
+        if file_path.suffix == ".xlsx":
             file_path = file_path / "converted_temporary.csv"
 
         with file_path.open(mode="rb") as f:
@@ -354,7 +354,7 @@ class Parser:
             return (metadata, data)
 
     def read_data_to_pandas(
-        self, data: bytes, filepath: str, encoding: str
+        self, data: bytes, filepath: Path, encoding: str
     ) -> pd.DataFrame:
         """
         Read data from a bytes object into a Pandas DataFrame.
@@ -369,7 +369,7 @@ class Parser:
         """
 
         # Write data to a temporary file
-        temp_file = "new_file_name"
+        temp_file = filepath.parent / "new_file_name"
         with temp_file.open(mode="wb") as f:
             f.write(data)
 
