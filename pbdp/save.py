@@ -24,7 +24,7 @@ def save_file(data: pd.DataFrame, file_type: str, file_path: Path) -> str:
     output_dir = current_dir / "processed"
     output_dir.mkdir(exist_ok=True)
     # Extract the file name and extension from the input file path
-    file_name = file_path.name(file_path).split(".")[0]
+    file_name = file_path.name.split(".")[0]
     output_path = output_dir / file_name
 
     # Save the dataframe to the file type in the output directory

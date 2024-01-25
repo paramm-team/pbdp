@@ -56,14 +56,22 @@ class Parser:
         # instead of "time"
         self.cycler_keywords = (
             {
-                "maccor": ["Cyc#", "Rec#", "TestTime", "Rec"],
+                "maccor": ["Cyc#", "Rec#", "TestTime"],
                 "vmp3": ["mode", "(Q-Qo)/mA.h", "freq/Hz", "time/s", "Ecell/V"],
                 "bitrode": ["Exclude", "Total Time", "Loop Counter#1", "Amp-Hours"],
                 "digatron": ["Step,", "AhAccu", "Prog Time"],
                 "ivium": ["freq. /Hz", "Z1 /ohm"],
                 "gamry": ["Pt\tT", "IERange"],
                 "solatron": ["Time (s)", "Z' (Ohm)"],
-                "novonix": ["Potential (V)", "Cycle Number"],
+                "novonix": ["Potential (V)", "Cycle Number"]
+                # "maccor": ["Cyc#", "Rec#", "TestTime", "Rec"],
+                # "vmp3": ["mode", "(Q-Qo)/mA.h", "freq/Hz", "time/s", "Ecell/V"],
+                # "bitrode": ["Exclude", "Total Time", "Loop Counter#1", "Amp-Hours"],
+                # "digatron": ["Step,", "AhAccu", "Prog Time"],
+                # "ivium": ["freq. /Hz", "Z1 /ohm"],
+                # "gamry": ["Pt\tT", "IERange"],
+                # "solatron": ["Time (s)", "Z' (Ohm)"],
+                # "novonix": ["Potential (V)", "Cycle Number"],
             }
             if bool(cycler_keywords) is False
             else cycler_keywords
@@ -194,13 +202,13 @@ class Parser:
                 return [path_or_file]
             else:
                 raise ValueError(f"Empty file: {path_or_file}")
-        elif os.path.isdir(path_or_file):
+        elif path_or_file.is_dir():
             # If the input is a directory, scan for non-empty files
             files = [
-                path_or_file / f
+                f
                 for f in path_or_file.iterdir()
-                if (path_or_file / f).is_file()
-                and (path_or_file / f).stat().st_size
+                if f.is_file()
+                and f.stat().st_size
             ]
 
             if not files:
@@ -302,7 +310,7 @@ class Parser:
 
         # Check if the file is in xlsx format and convert if necessary
         if file_path.suffix == ".xlsx":
-            file_path = file_path / "converted_temporary.csv"
+            file_path = file_path.parent / "converted_temporary.csv"
 
         with file_path.open(mode="rb") as f:
             contents = f.read()
@@ -380,7 +388,7 @@ class Parser:
         if file_ext == ".csv":
             df = pd.read_csv(temp_file, encoding=encoding)
         elif file_ext == ".xlsx":
-            df = pd.read_excel(temp_file, encoding=encoding)
+            df = pd.read_csv(temp_file, encoding=encoding)
         elif file_ext == ".txt":
             df = pd.read_csv(temp_file, sep="\t", encoding=encoding)
         elif file_ext == ".mpt":

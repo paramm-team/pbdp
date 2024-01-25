@@ -73,7 +73,7 @@ def find_periods(
                 first_mask = data["CCCV"] == "CV"
             else:
                 first_mask = (data["CCCV"] == "CV") & (
-                    data["Voltage Full [V]"].round(2) == volt
+                    data["Voltage [V]"].round(2) == volt
                 )
     elif first == "cccv":
         if curr is None:
@@ -178,7 +178,7 @@ def segment_data(data: pd.DataFrame, requests: list, reset: bool = False) -> lis
         list: A list of filtered DataFrames representing the segmented data.
     """
     # Check if request can be performed
-    required_cols = ["Current [A]", "Voltage Full [V]", "Time [s]"]
+    required_cols = ["Current [A]", "Voltage [V]", "Time [s]"]
     missing_cols = [col for col in required_cols if col not in data.columns]
     if missing_cols:
         missing_col_names = ", ".join(missing_cols)
@@ -378,7 +378,7 @@ def segment_data(data: pd.DataFrame, requests: list, reset: bool = False) -> lis
                 filtered_df_list.extend(data)
         elif "power" in sub_request:
             # Segment based on power
-            data["Power [W]"] = data["Voltage Full [V]"] * data["Current [A]"]
+            data["Power [W]"] = data["Voltage [V]"] * data["Current [A]"]
             #df_list = group_by_input_state(data, "Power")
             df_list = data[~data["Current [A]"].abs().lt(0.001)].groupby(
                 data["Power [W]"].diff().abs().gt(0.01).cumsum()
@@ -388,12 +388,12 @@ def segment_data(data: pd.DataFrame, requests: list, reset: bool = False) -> lis
                 pwr_W = float(sub_request.split("W")[0].split(" ")[1])
                 for _, group in df_list:
                     filtered_group = group[group["Power [W]"].round(2) == pwr_W]
-                    if not (
-                        filtered_group.empty and
-                        (filtered_group["Time [s]"].iloc[-1] -
-                         filtered_group["Time [s]"].iloc[0] >= 10)
-                    ):
-                        filtered_df_list.append(filtered_group)
+                    if not filtered_group.empty :
+                        if not (
+                            filtered_group["Time [s]"].iloc[-1] -
+                            filtered_group["Time [s]"].iloc[0] >= 10
+                        ):
+                            filtered_df_list.append(filtered_group)
             else:
                 # Segment all power periods
                 filtered_df_list.append(data)
