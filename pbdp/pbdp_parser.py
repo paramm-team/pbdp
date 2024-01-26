@@ -504,7 +504,7 @@ class Parser:
     def data_importer(
         self,
         path_or_file: Path,
-        file_type: str = "parquet",
+        file_type: str = "csv",
         save_option: str = "save",
         state_option: str = "",
         print_option: str = "",
