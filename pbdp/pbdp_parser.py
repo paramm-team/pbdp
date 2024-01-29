@@ -4,6 +4,7 @@ import chardet
 import openpyxl
 import csv
 from pathlib import Path
+import logging
 
 import pandas as pd
 from .states import add_state_label
@@ -182,6 +183,8 @@ class Parser:
             else standard_headers
         )
 
+        logging.info("Parser initialized") 
+
     def look_for_files(self, path_or_file: Path) -> Path:
         """
         Locate files based on the provided path or file.
@@ -200,7 +203,9 @@ class Parser:
             if path_or_file.stat().st_size > 1:
                 return [path_or_file]
             else:
+                logging.warning(f"Empty file, {path_or_file} ")
                 raise ValueError(f"Empty file: {path_or_file}")
+            logging.debug("File found")
         elif path_or_file.is_dir():
             # If the input is a directory, scan for non-empty files
             files = [
@@ -209,8 +214,10 @@ class Parser:
                 if f.is_file()
                 and f.stat().st_size
             ]
+            logging.debug("Directory found")
 
             if not files:
+                logging.warning("No files found in the directory, {path_or_file}")
                 raise ValueError(
                     f"""No files found in the directory:
                                 {path_or_file}"""
@@ -218,6 +225,7 @@ class Parser:
             return files
         else:
             # If the input is neither a file nor a directory
+            logging.warning(f"Invalid path or file, {path_or_file}")
             raise ValueError(f"Invalid path or file: {path_or_file}")
 
     def convert_xlsx_to_csv(self, file_path: Path) -> str:
