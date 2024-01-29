@@ -20,6 +20,8 @@ dependencies = [
     "plotly",
     "ipykernel",
     "pyarrow",
+    "jupyter_client",
+    "jupyter_core",
 ]
 dynamic = [
     "version",

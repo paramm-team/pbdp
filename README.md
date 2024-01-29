@@ -64,7 +64,7 @@ The optional dependancies are split into `dev` and `docs`. `dev` are used for te
     deactivate
     ```
 
-3. Install package from Github
+3. Install package
 
     ```bash
     pip install -e .\\[dev,docs]
