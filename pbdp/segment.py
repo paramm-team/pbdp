@@ -3,7 +3,8 @@ from .states import find_cc_and_cv
 import logging
 
 
-def group_by_input_state(data: pd.DataFrame, input_str: str, logger_name: str = 'pbdp_logger') -> list:
+def group_by_input_state(data: pd.DataFrame, input_str: str,
+                         logger_name: str = 'pbdp_logger') -> list:
     """
     Group the data based on a specific column value.
 
@@ -184,7 +185,8 @@ def find_periods(
     return periods
 
 
-def segment_data(data: pd.DataFrame, requests: list, reset: bool = False, logger_name: str = 'pbdp_logger') -> list:
+def segment_data(data: pd.DataFrame, requests: list, reset: bool = False,
+                 logger_name: str = 'pbdp_logger') -> list:
     """
     Segments the battery data based on the provided requests.
 
@@ -492,7 +494,7 @@ def find_rest(data: pd.DataFrame,
               rest periods.
     """
     logger = logging.getLogger(logger_name)
-    
+
     def process_segment(segment: pd.DataFrame):
         # Get the start and end indices of the segment and create a rest mask
         rest_mask = data["Current [A]"].abs().lt(current_epsilon)

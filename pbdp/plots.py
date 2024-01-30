@@ -5,7 +5,7 @@ from plotly.subplots import make_subplots
 import logging
 
 
-def plot_current_voltage_diff(data: pd.DataFrame, 
+def plot_current_voltage_diff(data: pd.DataFrame,
                               logger_name: str = 'pbdp_logger') -> None:
     """
     Plot the current and voltage differences over time.

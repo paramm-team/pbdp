@@ -34,7 +34,7 @@ def add_state_label(data: pd.DataFrame, current_epsilon: float = 0.001,
     rest_mask = data["Current [A]"].abs().lt(current_epsilon)
     charging_mask = data["Current [A]"].gt(current_epsilon)
     discharging_mask = data["Current [A]"].lt(-current_epsilon)
-    logger.info(f"masks created")
+    logger.info("masks created")
 
     # Assign labels for each state
     data.loc[rest_mask, "Battery State"] = "rest"

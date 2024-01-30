@@ -248,7 +248,7 @@ class Parser:
         # Get the active sheet
         sheet = workbook.active
         self.logger.debug(f"Excel file, {file_path}, loaded")
-        
+
         # Define the path for the temporary CSV file
         current_dir = file_path.parent
         csv_file_path = current_dir / "converted_temporary.csv"
@@ -285,8 +285,8 @@ class Parser:
             contents = f.read()
             encoding = chardet.detect(contents)["encoding"]
             if encoding is None:
-                self.logger.warning(f"No encoding detected; Something is wrong with your\
-                                  input file, {file_path}")
+                self.logger.warning(f"No encoding detected; Something is wrong with\
+                                     your input file, {file_path}")
                 raise ValueError("Something is wrong with your input file")
             else:
                 self.logger.info(f"Encoding detected: {encoding}")
@@ -429,7 +429,8 @@ class Parser:
         elif file_ext == ".DTA":
             df = pd.read_table(temp_file, sep="\t", encoding=encoding)
         else:
-            self.logger.warning(f"Invalid file format, {file_ext}, deleting temporary file")
+            self.logger.warning(f"Invalid file format, {file_ext},\
+                                deleting temporary file")
             temp_file.unlink()
             raise ValueError(f"Invalid file format: {file_ext}")
 
