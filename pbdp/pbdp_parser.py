@@ -36,7 +36,9 @@ class Parser:
         standard_units: dict = {},
         standard_time: list = [],
         standard_headers: dict = {},
+        logger_name: str = "pbdp_logger",
     ):
+        self.logger = logging.getLogger(logger_name)
         """
         Initialize the class with optional parameters for configuring data
         processing.
@@ -48,6 +50,9 @@ class Parser:
             standard_time (list): List of standard time columns.
             standard_headers (dict): Mapping of header variables to standardized
                                      variables.
+            logger_name (str): Name of the logger to use, defaults to "pbdp_logger"
+                               which is the default logger. That can be initialized
+                               using pbdp.create_logger() function.
         """
 
         # Initialize the class variables based on provided arguments.
@@ -183,7 +188,7 @@ class Parser:
             else standard_headers
         )
 
-        logging.info("Parser initialized")
+        self.logger.info("Parser initialized")
 
     def look_for_files(self, path_or_file: Path) -> Path:
         """
@@ -203,9 +208,9 @@ class Parser:
             if path_or_file.stat().st_size > 1:
                 return [path_or_file]
             else:
-                logging.warning(f"Empty file, {path_or_file} ")
+                self.logger.warning(f"Empty file, {path_or_file} ")
                 raise ValueError(f"Empty file: {path_or_file}")
-            logging.debug("File found")
+            self.logger.debug("File found")
         elif path_or_file.is_dir():
             # If the input is a directory, scan for non-empty files
             files = [
@@ -214,10 +219,10 @@ class Parser:
                 if f.is_file()
                 and f.stat().st_size
             ]
-            logging.debug("Directory found")
+            self.logger.debug("Directory found")
 
             if not files:
-                logging.warning("No files found in the directory, {path_or_file}")
+                self.logger.warning("No files found in the directory, {path_or_file}")
                 raise ValueError(
                     f"""No files found in the directory:
                                 {path_or_file}"""
@@ -225,7 +230,7 @@ class Parser:
             return files
         else:
             # If the input is neither a file nor a directory
-            logging.warning(f"Invalid path or file, {path_or_file}")
+            self.logger.warning(f"Invalid path or file, {path_or_file}")
             raise ValueError(f"Invalid path or file: {path_or_file}")
 
     def convert_xlsx_to_csv(self, file_path: Path) -> str:
@@ -242,7 +247,7 @@ class Parser:
         workbook = openpyxl.load_workbook(str(file_path.resolve()))
         # Get the active sheet
         sheet = workbook.active
-        logging.debug(f"Excel file, {file_path}, loaded")
+        self.logger.debug(f"Excel file, {file_path}, loaded")
         
         # Define the path for the temporary CSV file
         current_dir = file_path.parent
@@ -255,7 +260,7 @@ class Parser:
             for row in sheet.iter_rows(values_only=True):
                 writer.writerow(row)
 
-        logging.debug(f"Excel file, {file_path}, converted to CSV, {csv_file_path}")
+        self.logger.debug(f"Excel file, {file_path}, converted to CSV, {csv_file_path}")
         return csv_file_path
 
     def find_words(self, file_path: Path) -> tuple:
@@ -272,7 +277,7 @@ class Parser:
         """
         # Check if the file is in xlsx format and convert if necessary
         if file_path.suffix == ".xlsx":
-            logging.info(f"Converting Excel file, {file_path}, to CSV")
+            self.logger.info(f"Converting Excel file, {file_path}, to CSV")
             file_path = self.convert_xlsx_to_csv(file_path)
 
         # Read the contents of the file and detect the encoding
@@ -280,13 +285,13 @@ class Parser:
             contents = f.read()
             encoding = chardet.detect(contents)["encoding"]
             if encoding is None:
-                logging.warning(f"No encoding detected; Something is wrong with your\
+                self.logger.warning(f"No encoding detected; Something is wrong with your\
                                   input file, {file_path}")
                 raise ValueError("Something is wrong with your input file")
             else:
-                logging.info(f"Encoding detected: {encoding}")
+                self.logger.info(f"Encoding detected: {encoding}")
                 contents = contents.decode(encoding)
-                logging.info("File content read")
+                self.logger.info("File content read")
 
         # Compile the regular expression pattern using cycler_keywords
         data = []
@@ -300,12 +305,12 @@ class Parser:
             with file_path.open(mode="rb") as f:
                 # If a match is found, set the file pointer to that location
                 f.seek(match.start())
-                logging.info(f"Keywords found in file, {file_path}, at position\
+                self.logger.info(f"Keywords found in file, {file_path}, at position\
                              {match.start()}, pointer set")
                 return (f.tell(), encoding)
         else:
             # If no match is found, raise an exception
-            logging.warning(f"No keywords found in file, {file_path}")
+            self.logger.warning(f"No keywords found in file, {file_path}")
             raise ValueError(f"No keywords found in file: {file_path}")
 
     def split_file(self, pointer: int, file_path: Path, save_option: str) -> tuple:
@@ -327,7 +332,7 @@ class Parser:
 
         # Check if the file is in xlsx format and convert if necessary
         if file_path.suffix == ".xlsx":
-            logging.info(f"file {file_path} is in xlsx format")
+            self.logger.info(f"file {file_path} is in xlsx format")
             file_path = file_path.parent / "converted_temporary.csv"
 
         with file_path.open(mode="rb") as f:
@@ -335,7 +340,7 @@ class Parser:
             # Split the file into two parts based on the pointer position
             metadata = contents[:pointer]
             data = contents[pointer:]
-            logging.info(f"File, {file_path}, split at position {pointer}")
+            self.logger.info(f"File, {file_path}, split at position {pointer}")
 
         # Find the first non-empty line in the data part
         first_line = next(line for line in data.splitlines() if line.strip())
@@ -345,10 +350,10 @@ class Parser:
 
         # Construct the modified data with the modified first line
         data.replace(first_line, modified_line, 1)
-        logging.info("Commas removed from first line of data")
+        self.logger.info("Commas removed from first line of data")
 
         if save_option == "save all":
-            logging.info("Save All option selected")
+            self.logger.info("Save All option selected")
             # Get the current directory of the file
             current_dir = name.parent
             # Extract the file name and extension from the input file path
@@ -357,7 +362,7 @@ class Parser:
             # Create a subfolder if it doesn't exist
             output_dir = current_dir / "pre_processed"
             if not output_dir.exists():
-                logging.info(f"Creating directory, {output_dir}")
+                self.logger.info(f"Creating directory, {output_dir}")
                 output_dir.mkdir()
 
             # Save the metadata part to a text file in the output directory
@@ -365,7 +370,7 @@ class Parser:
             metadata_output_path = output_dir / metadata_file_name
             with metadata_output_path.open(mode="wb") as f:
                 f.write(metadata)
-                logging.info(f"Metadata saved to {metadata_output_path}")
+                self.logger.info(f"Metadata saved to {metadata_output_path}")
 
             # Save the data part to a new file with the original file format in
             # the output directory
@@ -373,17 +378,17 @@ class Parser:
             data_output_path = output_dir / data_file_name
             with data_output_path.open(mode="wb") as f:
                 f.write(data)
-                logging.info(f"Data saved to {data_output_path}")
+                self.logger.info(f"Data saved to {data_output_path}")
 
             if "converted_temporary.csv" in file_path.name:
-                logging.info(f"Deleting temporary file, {file_path}")
+                self.logger.info(f"Deleting temporary file, {file_path}")
                 file_path.unlink()
 
             return (metadata, data)
 
         else:
             if "converted_temporary.csv" in file_path.name:
-                logging.info(f"Deleting temporary file, {file_path}")
+                self.logger.info(f"Deleting temporary file, {file_path}")
                 file_path.unlink()
             return (metadata, data)
 
@@ -405,7 +410,7 @@ class Parser:
         # Write data to a temporary file
         temp_file = filepath.parent / "new_file_name"
         with temp_file.open(mode="wb") as f:
-            logging.info(f"Writing data to temporary file for Pandas Import,\
+            self.logger.info(f"Writing data to temporary file for Pandas Import,\
                          {temp_file}")
             f.write(data)
 
@@ -424,12 +429,12 @@ class Parser:
         elif file_ext == ".DTA":
             df = pd.read_table(temp_file, sep="\t", encoding=encoding)
         else:
-            logging.warning(f"Invalid file format, {file_ext}, deleting temporary file")
+            self.logger.warning(f"Invalid file format, {file_ext}, deleting temporary file")
             temp_file.unlink()
             raise ValueError(f"Invalid file format: {file_ext}")
 
         # Remove the temporary file
-        logging.info(f"Data read, deleting temporary file, {temp_file}")
+        self.logger.info(f"Data read, deleting temporary file, {temp_file}")
         temp_file.unlink()
 
         return df
@@ -453,16 +458,16 @@ class Parser:
             if col in self.standard_units:
                 # Convert values in columns with standard units
                 data[col] = data[col] * self.standard_units[col]
-                logging.info(f"Units converted to standard for {col}")
+                self.logger.info(f"Units converted to standard for {col}")
             elif col in self.standard_time:
                 if col == "Run Time (h)":
                     # Convert hours to seconds
                     data[col] = data[col] * 3600
-                    logging.info("Time converted to seconds from Run Time (h)")
+                    self.logger.info("Time converted to seconds from Run Time (h)")
                 else:
                     # Convert a string representing a time duration to seconds
                     data[col] = pd.to_timedelta(data[col]).dt.total_seconds()
-                    logging.info("Time converted to seconds from string")
+                    self.logger.info("Time converted to seconds from string")
 
         return data
 
@@ -492,7 +497,7 @@ class Parser:
                 if col in value:
                     new_headers[col] = header
                     break
-        logging.info("Headers converted to standard")
+        self.logger.info("Headers converted to standard")
 
         # Rename columns using the new mapping
         data.rename(columns=new_headers, inplace=True)
@@ -502,7 +507,7 @@ class Parser:
             if col in self.standard_headers:
                 data[col] = pd.to_numeric(data[col], errors="coerce")
 
-        logging.info("Columns converted to numeric")
+        self.logger.info("Columns converted to numeric")
         return data
 
     def remove_unwanted(self, data: pd.DataFrame) -> pd.DataFrame:
@@ -517,7 +522,7 @@ class Parser:
                             removed.
         """
 
-        logging.info("Removing unwanted rows and columns")
+        self.logger.info("Removing unwanted rows and columns")
         if "Step Number" in data.columns:
             # Drop rows from threshold index to the end of the DataFrame
             diff_threshold = (
@@ -534,7 +539,7 @@ class Parser:
         # Drop unwanted NAs created by pre-processing
         data = data.dropna()
         data = data.reset_index(drop=True)
-        logging.info("Unwanted rows and columns removed")
+        self.logger.info("Unwanted rows and columns removed")
         return data
 
     def data_importer(
@@ -560,41 +565,41 @@ class Parser:
             print_option (str, optional): Option for printing data and plots.
                                             Defaults to "".
         """
-        logging.info("Importing data")
+        self.logger.info("Importing data")
         for file in self.look_for_files(path_or_file):
             # Process each file
-            logging.info(f"Processing file, {file}")
+            self.logger.info(f"Processing file, {file}")
             pointer, encoding = self.find_words(file)
-            logging.info(f"Pointer and encoding found for file, {file}")
+            self.logger.info(f"Pointer and encoding found for file, {file}")
             metadata, data = self.split_file(pointer, file, save_option)
-            logging.info(f"File, {file}, split into metadata and data")
+            self.logger.info(f"File, {file}, split into metadata and data")
             data = self.read_data_to_pandas(data, file, encoding)
             data = self.change_units(data)
             data = self.change_headers(data)
             data = self.remove_unwanted(data)
-            logging.info(f"Data imported from file, {file}")
+            self.logger.info(f"Data imported from file, {file}")
             if state_option == "yes":
                 try:
                     data = add_state_label(data)
-                    logging.info(f"State labels added to file, {file}")
+                    self.logger.info(f"State labels added to file, {file}")
                 except Exception as e:
-                    logging.warn(f"An error occurred: {e} in file {file}")
+                    self.logger.warn(f"An error occurred: {e} when processing {file}")
             # Save the file if the option is set to 'save all' or 'save'
             if save_option in ["save all", "save"]:
                 save_file(data, file_type, file)
-                logging.info(f"File, {file}, saved")
+                self.logger.info(f"File, {file}, saved")
             # Print the dataframe and the plots if print_option is 'yes' or all
             if print_option in ["yes", "diff"]:
                 try:
                     display_data(data)
-                    logging.info(f"Data displayed for file, {file}")
+                    self.logger.info(f"Data displayed for file, {file}")
                 except Exception as e:
-                    logging.error(f"An error occurred: {e} in file {file}")
+                    self.logger.error(f"An error occurred: {e} when processing {file}")
             # Print the diff on current and voltage if print_option is 'all'
             if print_option == "diff":
                 try:
                     plot_current_voltage_diff(data)
                 except Exception as e:
-                    logging.error(f"An error occurred: {e} in file {file}")
+                    self.logger.error(f"An error occurred: {e} when processing {file}")
 
         return data
