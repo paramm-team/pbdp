@@ -419,15 +419,15 @@ class Parser:
 
         # Read file using the appropriate Pandas function based on its extension
         if file_ext == ".csv":
-            df = pd.read_csv(temp_file, encoding=encoding)
+            df = pd.read_csv(temp_file, encoding=encoding, low_memory=False)
         elif file_ext == ".xlsx":
-            df = pd.read_csv(temp_file, encoding=encoding)
+            df = pd.read_csv(temp_file, encoding=encoding, low_memory=False)
         elif file_ext == ".txt":
-            df = pd.read_csv(temp_file, sep="\t", encoding=encoding)
+            df = pd.read_csv(temp_file, sep="\t", encoding=encoding, low_memory=False)
         elif file_ext == ".mpt":
-            df = pd.read_table(temp_file, encoding=encoding)
+            df = pd.read_table(temp_file, encoding=encoding, low_memory=False)
         elif file_ext == ".DTA":
-            df = pd.read_table(temp_file, sep="\t", encoding=encoding)
+            df = pd.read_table(temp_file, sep="\t", encoding=encoding, low_memory=False)
         else:
             self.logger.warning(f"Invalid file format, {file_ext},\
                                 deleting temporary file")
