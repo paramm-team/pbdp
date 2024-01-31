@@ -1,3 +1,3 @@
-import src
+import pbdp
 
-parser = src.Parser()
+parser = pbdp.Parser()

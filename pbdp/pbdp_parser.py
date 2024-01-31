@@ -1,9 +1,9 @@
 import re
-import os
 
 import chardet
 import openpyxl
 import csv
+from pathlib import Path
 
 import pandas as pd
 from .states import add_state_label
@@ -55,14 +55,22 @@ class Parser:
         # instead of "time"
         self.cycler_keywords = (
             {
-                "maccor": ["Cyc#", "Rec#", "TestTime", "Rec"],
+                "maccor": ["Cyc#", "Rec#", "TestTime"],
                 "vmp3": ["mode", "(Q-Qo)/mA.h", "freq/Hz", "time/s", "Ecell/V"],
                 "bitrode": ["Exclude", "Total Time", "Loop Counter#1", "Amp-Hours"],
                 "digatron": ["Step,", "AhAccu", "Prog Time"],
                 "ivium": ["freq. /Hz", "Z1 /ohm"],
                 "gamry": ["Pt\tT", "IERange"],
                 "solatron": ["Time (s)", "Z' (Ohm)"],
-                "novonix": ["Potential (V)", "Cycle Number"],
+                "novonix": ["Potential (V)", "Cycle Number"]
+                # "maccor": ["Cyc#", "Rec#", "TestTime", "Rec"],
+                # "vmp3": ["mode", "(Q-Qo)/mA.h", "freq/Hz", "time/s", "Ecell/V"],
+                # "bitrode": ["Exclude", "Total Time", "Loop Counter#1", "Amp-Hours"],
+                # "digatron": ["Step,", "AhAccu", "Prog Time"],
+                # "ivium": ["freq. /Hz", "Z1 /ohm"],
+                # "gamry": ["Pt\tT", "IERange"],
+                # "solatron": ["Time (s)", "Z' (Ohm)"],
+                # "novonix": ["Potential (V)", "Cycle Number"],
             }
             if bool(cycler_keywords) is False
             else cycler_keywords
@@ -174,12 +182,12 @@ class Parser:
             else standard_headers
         )
 
-    def look_for_files(self, path_or_file: str) -> str:
+    def look_for_files(self, path_or_file: Path) -> Path:
         """
         Locate files based on the provided path or file.
 
         Args:
-            path_or_file (str): The path to a file or a directory.
+            path_or_file (Path): The path to a file or a directory.
 
         Returns:
             list: A list of paths to non-empty files found.
@@ -187,19 +195,19 @@ class Parser:
         Raises:
             ValueError: If the provided path or file is invalid or empty.
         """
-        if os.path.isfile(path_or_file):
+        if path_or_file.is_file():
             # If the input is a file, check if it's not empty
-            if os.path.getsize(path_or_file) > 1:
+            if path_or_file.stat().st_size > 1:
                 return [path_or_file]
             else:
                 raise ValueError(f"Empty file: {path_or_file}")
-        elif os.path.isdir(path_or_file):
+        elif path_or_file.is_dir():
             # If the input is a directory, scan for non-empty files
             files = [
-                os.path.join(path_or_file, f)
-                for f in os.listdir(path_or_file)
-                if os.path.isfile(os.path.join(path_or_file, f))
-                and os.path.getsize(os.path.join(path_or_file, f))
+                f
+                for f in path_or_file.iterdir()
+                if f.is_file()
+                and f.stat().st_size
             ]
 
             if not files:
@@ -212,7 +220,7 @@ class Parser:
             # If the input is neither a file nor a directory
             raise ValueError(f"Invalid path or file: {path_or_file}")
 
-    def convert_xlsx_to_csv(self, file_path: str) -> str:
+    def convert_xlsx_to_csv(self, file_path: Path) -> str:
         """
         Convert an Excel (xlsx) file to a CSV file.
 
@@ -223,16 +231,16 @@ class Parser:
             str: The path to the converted CSV file.
         """
         # Load the Excel workbook
-        workbook = openpyxl.load_workbook(file_path)
+        workbook = openpyxl.load_workbook(str(file_path.resolve()))
         # Get the active sheet
         sheet = workbook.active
 
         # Define the path for the temporary CSV file
-        current_dir = os.path.dirname(file_path)
-        csv_file_path = os.path.join(current_dir, "converted_temporary.csv")
+        current_dir = file_path.parent
+        csv_file_path = current_dir / "converted_temporary.csv"
 
         # Write Excel sheet data to the CSV file
-        with open(csv_file_path, "w", newline="") as csv_file:
+        with csv_file_path.open(mode='w') as csv_file:
             writer = csv.writer(csv_file)
             # Write each row in the Excel sheet to the CSV file
             for row in sheet.iter_rows(values_only=True):
@@ -240,7 +248,7 @@ class Parser:
 
         return csv_file_path
 
-    def find_words(self, file_path: str) -> tuple:
+    def find_words(self, file_path: Path) -> tuple:
         """
         Find specific keywords in a file and return the starting position of
         the match.
@@ -253,11 +261,11 @@ class Parser:
                     the encoding of the file.
         """
         # Check if the file is in xlsx format and convert if necessary
-        if file_path.endswith(".xlsx"):
+        if file_path.suffix == ".xlsx":
             file_path = self.convert_xlsx_to_csv(file_path)
 
         # Read the contents of the file and detect the encoding
-        with open(file_path, "rb") as f:
+        with file_path.open(mode="rb") as f:
             contents = f.read()
             encoding = chardet.detect(contents)["encoding"]
             if encoding is None:
@@ -274,7 +282,7 @@ class Parser:
         # Search for the keywords in the file
         match = pattern.search(contents)
         if match:
-            with open(file_path, "rb") as f:
+            with file_path.open(mode="rb") as f:
                 # If a match is found, set the file pointer to that location
                 f.seek(match.start())
                 return (f.tell(), encoding)
@@ -282,7 +290,7 @@ class Parser:
             # If no match is found, raise an exception
             raise ValueError(f"No keywords found in file: {file_path}")
 
-    def split_file(self, pointer: int, file_path: str, save_option: str) -> tuple:
+    def split_file(self, pointer: int, file_path: Path, save_option: str) -> tuple:
         """
         Split a file into two parts based on a pointer position and save them
         as separate files.
@@ -300,10 +308,10 @@ class Parser:
         name = file_path
 
         # Check if the file is in xlsx format and convert if necessary
-        if file_path.endswith(".xlsx"):
-            file_path = os.path.dirname(file_path) + "/converted_temporary.csv"
+        if file_path.suffix == ".xlsx":
+            file_path = file_path.parent / "converted_temporary.csv"
 
-        with open(file_path, "rb") as f:
+        with file_path.open(mode="rb") as f:
             contents = f.read()
             # Split the file into two parts based on the pointer position
             metadata = contents[:pointer]
@@ -320,40 +328,40 @@ class Parser:
 
         if save_option == "save all":
             # Get the current directory of the file
-            current_dir = os.path.dirname(name)
+            current_dir = name.parent
             # Extract the file name and extension from the input file path
-            file_name, file_ext = os.path.splitext(os.path.basename(name))
+            file_name, file_ext = name.stem, name.suffix
 
             # Create a subfolder if it doesn't exist
-            output_dir = os.path.join(current_dir, "pre_processed")
-            if not os.path.exists(output_dir):
-                os.makedirs(output_dir)
+            output_dir = current_dir / "pre_processed"
+            if not output_dir.exists():
+                output_dir.mkdir()
 
             # Save the metadata part to a text file in the output directory
             metadata_file_name = file_name + "_metadata.txt"
-            metadata_output_path = os.path.join(output_dir, metadata_file_name)
-            with open(metadata_output_path, "wb") as f:
+            metadata_output_path = output_dir / metadata_file_name
+            with metadata_output_path.open(mode="wb") as f:
                 f.write(metadata)
 
             # Save the data part to a new file with the original file format in
             # the output directory
             data_file_name = file_name + "_data" + file_ext
-            data_output_path = os.path.join(output_dir, data_file_name)
-            with open(data_output_path, "wb") as f:
+            data_output_path = output_dir / data_file_name
+            with data_output_path.open(mode="wb") as f:
                 f.write(data)
 
-            if "converted_temporary.csv" in os.path.basename(file_path):
-                os.remove(file_path)
+            if "converted_temporary.csv" in file_path.name:
+                file_path.unlink()
 
             return (metadata, data)
 
         else:
-            if "converted_temporary.csv" in os.path.basename(file_path):
-                os.remove(file_path)
+            if "converted_temporary.csv" in file_path.name:
+                file_path.unlink()
             return (metadata, data)
 
     def read_data_to_pandas(
-        self, data: bytes, filepath: str, encoding: str
+        self, data: bytes, filepath: Path, encoding: str
     ) -> pd.DataFrame:
         """
         Read data from a bytes object into a Pandas DataFrame.
@@ -368,18 +376,18 @@ class Parser:
         """
 
         # Write data to a temporary file
-        temp_file = "new_file_name"
-        with open(temp_file, "wb") as f:
+        temp_file = filepath.parent / "new_file_name"
+        with temp_file.open(mode="wb") as f:
             f.write(data)
 
         # Determine file extension
-        file_ext = os.path.splitext(filepath)[1]
+        file_ext = filepath.suffix
 
         # Read file using the appropriate Pandas function based on its extension
         if file_ext == ".csv":
             df = pd.read_csv(temp_file, encoding=encoding)
         elif file_ext == ".xlsx":
-            df = pd.read_excel(temp_file, encoding=encoding)
+            df = pd.read_csv(temp_file, encoding=encoding)
         elif file_ext == ".txt":
             df = pd.read_csv(temp_file, sep="\t", encoding=encoding)
         elif file_ext == ".mpt":
@@ -387,11 +395,11 @@ class Parser:
         elif file_ext == ".DTA":
             df = pd.read_table(temp_file, sep="\t", encoding=encoding)
         else:
-            os.remove(temp_file)
+            temp_file.unlink()
             raise ValueError(f"Invalid file format: {file_ext}")
 
         # Remove the temporary file
-        os.remove(temp_file)
+        temp_file.unlink()
 
         return df
 
@@ -494,8 +502,8 @@ class Parser:
 
     def data_importer(
         self,
-        path_or_file: str,
-        file_type: str = "parquet",
+        path_or_file: Path,
+        file_type: str = "csv",
         save_option: str = "save",
         state_option: str = "",
         print_option: str = "",
@@ -504,7 +512,7 @@ class Parser:
         Import, process, and optionally save and/or print battery data.
 
         Args:
-            path_or_file (str): Path to a directory or file containing battery
+            path_or_file (pathlib.path): Path to a directory or file containing battery
                                 data.
             file_type (str, optional): The type of file to save as. Defaults to
                                         "csv".

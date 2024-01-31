@@ -1,7 +1,7 @@
-import src
+import pbdp
 import pandas as pd
-from src import segment
-parser = src.Parser()
+from pbdp import segment
+parser = pbdp.Parser()
 #data = parser.data_importer(
 #   path_or_file='C:/Users/alex_/Downloads/data/Digatron.csv',
 #   file_type='csv'

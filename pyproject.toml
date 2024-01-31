@@ -5,12 +5,12 @@ requires = [
 build-backend = "hatchling.build"
 
 [project]
-name = "dataprocessing"
+name = "pbdp"
 description = "A package for processing experimental data for batteries. Under development."
 readme = "README.md"
 license = "BSD-3-Clause"
 authors = [
-    { name = "Alexnadru Pascu, Ferran Brosa Planella, W. Dhammika Widanage", email = "Ferran.Brosa-Planella@warwick.ac.uk" },
+    { name = "Alexnadru Pascu, Ferran Brosa Planella, W. Dhammika Widanage, Philip Grylls", email = "Ferran.Brosa-Planella@warwick.ac.uk" },
 ]
 dependencies = [
     "pandas",
@@ -18,6 +18,10 @@ dependencies = [
     "chardet",
     "openpyxl",
     "plotly",
+    "ipykernel",
+    "pyarrow",
+    "jupyter_client",
+    "jupyter_core",
 ]
 dynamic = [
     "version",
@@ -40,9 +44,9 @@ deploy = [
 ]
 
 [tool.hatch.version]
-path = "src/version.py"
+path = "pbdp/version.py"
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "/src",
+    "/pbdp",
 ]

@@ -6,7 +6,7 @@ import argparse
 def lint(session):
     """Run the flake8 linter."""
     session.install('flake8')
-    session.run('flake8', './src/', './tests/')
+    session.run('flake8', './pbdp/', './tests/')
 
 
 @nox.session
@@ -63,7 +63,7 @@ def coverage(session):
     """Run the unit test suite with coverage."""
     session.install('-e', './[dev]')
 
-    session.run("coverage", "run", "--source=./src", "--rcfile=.coveragerc", "-m", "unittest", "discover", "./tests/")
+    session.run("coverage", "run", "--source=./pbdp", "--rcfile=.coveragerc", "-m", "unittest", "discover", "./tests/")
     session.run("coverage", "report", "-m")
     session.run("coverage", "xml")
 
@@ -83,7 +83,7 @@ def coverage(session):
 
 #     session.install("bump2version", "./[deploy]")
 
-#     version = src.__version__
+#     version = pbdp.__version__
 #     session.log(f"Bumping the {version!r} version")
 #     session.run("bump2version", version)
 
