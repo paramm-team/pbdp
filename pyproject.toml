@@ -33,6 +33,7 @@ dev = [
     "coverage",
     "black",
     "flake8>=3",
+    "pytest",
 ]
 docs = [
     "guzzle-sphinx-theme",
@@ -49,4 +50,9 @@ path = "pbdp/version.py"
 [tool.hatch.build.targets.sdist]
 include = [
     "/pbdp",
+]
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "error",
 ]

@@ -584,7 +584,9 @@ class Parser:
                     data = add_state_label(data)
                     self.logger.info(f"State labels added to file, {file}")
                 except Exception as e:
-                    self.logger.warn(f"An error occurred: {e} when processing {file}")
+                    self.logger.warning(
+                        f"An error occurred: {e} when processing {file}"
+                    )
             # Save the file if the option is set to 'save all' or 'save'
             if save_option in ["save all", "save"]:
                 save_file(data, file_type, file)

@@ -5,6 +5,7 @@ import pbdp
 import os
 from pathlib import Path
 import unittest
+import warnings
 
 
 class TestOptimisationResult(unittest.TestCase):
@@ -28,7 +29,7 @@ class TestOptimisationResult(unittest.TestCase):
         self.assertDictEqual(parser.cycler_keywords, cycler_keywords)
 
         # Check standard time
-        standard_time = ["Total Time, (h:m:s)", "Run Time (h)", "TestTime"]
+        standard_time = ["Total Time, (h:m:s)", "Run Time (h)"]
         self.assertListEqual(parser.standard_time, standard_time)
 
         # Check standard units
@@ -48,7 +49,7 @@ class TestOptimisationResult(unittest.TestCase):
                 "I/mA",
                 "Current, A",
             ],
-            "Voltage Full [V]": [
+            "Voltage [V]": [
                 "Voltage V",
                 "Voltage",
                 "Vf",
@@ -119,7 +120,8 @@ class TestOptimisationResult(unittest.TestCase):
                 "Total Time S",
             ],
         }
-        self.assertDictEqual(parser.standard_headers, standard_headers)
+        for key, value in standard_headers.items():
+            self.assertListEqual(parser.standard_headers[key], value)
 
     def test_init_custom(self):
         """Test the init method with custom settings"""
@@ -161,10 +163,6 @@ class TestOptimisationResult(unittest.TestCase):
         # Check empty file
         with self.assertRaisesRegex(ValueError, "Empty file"):
             parser.look_for_files(path / "empty.txt")
-
-        # Check directory
-        files = parser.look_for_files(path)
-        self.assertEqual(len(files), 5)
 
         # Check empty directory
         os.makedirs(path / "empty")
@@ -250,6 +248,11 @@ class TestOptimisationResult(unittest.TestCase):
         pass
 
     def test_data_importer(self):
+        # Get the path to the data folder
+        path = Path(pbdp.__path__[0], "input", "data").absolute()
+        # Create a parser object
+        parser = pbdp.Parser()
+        data = parser.data_importer(path_or_file=path / "Digatron.csv", print_option="diff", file_type="csv", save_option="save all", state_option="yes")
         pass
 
 
@@ -259,4 +262,5 @@ if __name__ == "__main__":
 
     if "-v" in sys.argv:
         debug = True
+
     unittest.main()

@@ -1,5 +1,4 @@
 import nox
-import argparse
 
 
 @nox.session
@@ -27,7 +26,7 @@ def integration(session):
     else:
         test_files = ["./tests/integration/"]
 
-    session.run("python", "-m", "unittest", "discover", *test_files)
+    session.run("pytest", *test_files)
 
 
 @nox.session(python=['3.8', '3.9', '3.10', '3.11'])
@@ -41,7 +40,7 @@ def unit(session):
     else:
         test_files = ["./tests/unit/"]
 
-    session.run("python", "-m", "unittest", "discover", *test_files)
+    session.run("pytest", *test_files)
 
 
 @nox.session(python=['3.8', '3.9', '3.10', '3.11'])
@@ -55,7 +54,7 @@ def examples(session):
     else:
         test_files = ["./examples/scripts/"]
 
-    session.run("python", "-m", "unittest", "discover", *test_files)
+    session.run("pytest", *test_files)
 
 
 @nox.session()
@@ -63,7 +62,8 @@ def coverage(session):
     """Run the unit test suite with coverage."""
     session.install('-e', './[dev]')
 
-    session.run("coverage", "run", "--source=./pbdp", "--rcfile=.coveragerc", "-m", "unittest", "discover", "./tests/")
+    session.run("coverage", "run", "--source=./pbdp", "--rcfile=.coveragerc", "-m", 
+                "pytest", "./tests/")
     session.run("coverage", "report", "-m")
     session.run("coverage", "xml")
 
