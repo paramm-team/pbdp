@@ -6,7 +6,7 @@
 
 **WARNING:** this package is still under development.
 
-This package is provides parameter optimization for PyBaMM (Python Battery Mathematical Modelling) using different optimization techniques. Examples on how to run this package can be found in the [examples folder](./examples)
+This package provides tools to process and handle battery cycler experimental data. Examples on how to run this package can be found in the [examples folder](./examples)
 
 ## 🚀 Installing pybamm-param
 
