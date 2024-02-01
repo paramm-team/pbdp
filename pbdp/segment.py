@@ -107,9 +107,11 @@ def find_periods(
     logger.info(f"First mask: {first_mask}")
 
     start_indices_first = data.index[
-        (first_mask) & (~first_mask.shift(1).fillna(False))
+        (first_mask) & (~first_mask.shift(1, fill_value=False))
     ]
-    end_indices_first = data.index[(first_mask) & (~first_mask.shift(-1).fillna(False))]
+    end_indices_first = data.index[
+        (first_mask) & (~first_mask.shift(-1, fill_value=False))
+    ]
     logger.info(f"Start indices: {start_indices_first}")
     logger.info(f"End indices: {end_indices_first}")
 
@@ -165,10 +167,10 @@ def find_periods(
                 )
     # Identify the start and end of second input periods
     start_indices_second = data.index[
-        (second_mask) & (~second_mask.shift(1).fillna(False))
+        (second_mask) & (~second_mask.shift(1, fill_value=False))
     ]
     end_indices_second = data.index[
-        (second_mask) & (~second_mask.shift(-1).fillna(False))
+        (second_mask) & (~second_mask.shift(-1, fill_value=False))
     ]
 
     second_indices = list(zip(start_indices_second, end_indices_second))
