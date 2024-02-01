@@ -204,8 +204,7 @@ class TestOptimisationResult(unittest.TestCase):
 
         parser = pbdp.Parser()
 
-
-        #The TODOs are because they fail if you have run examples before
+        # The TODOs are because they fail if you have run examples before
 
         # Check pre_processed folder does not exist
         # TODO: why is this here?

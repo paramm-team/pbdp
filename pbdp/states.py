@@ -1,7 +1,9 @@
 import pandas as pd
+import logging
 
 
-def add_state_label(data: pd.DataFrame, current_epsilon: float = 0.001) -> pd.DataFrame:
+def add_state_label(data: pd.DataFrame, current_epsilon: float = 0.001,
+                    logger_name: str = 'pbdp_logger') -> pd.DataFrame:
     """
     Add battery state labels to the DataFrame based on current values.
 
@@ -17,10 +19,12 @@ def add_state_label(data: pd.DataFrame, current_epsilon: float = 0.001) -> pd.Da
     Raises:
         ValueError: If required columns are not present in the DataFrame.
     """
+    logger = logging.getLogger(logger_name)
     # Check if required columns are present in dataframe
     required_cols = ["Current [A]", "Voltage [V]", "Time [s]"]
     for col in required_cols:
         if col not in data.columns:
+            logger.error(f"{col}, required column not found in dataframe")
             raise ValueError(f"{col}, required column not found in dataframe")
 
     # Set initial state label to "unknown" for all rows
@@ -30,12 +34,13 @@ def add_state_label(data: pd.DataFrame, current_epsilon: float = 0.001) -> pd.Da
     rest_mask = data["Current [A]"].abs().lt(current_epsilon)
     charging_mask = data["Current [A]"].gt(current_epsilon)
     discharging_mask = data["Current [A]"].lt(-current_epsilon)
+    logger.info("masks created")
 
     # Assign labels for each state
     data.loc[rest_mask, "Battery State"] = "rest"
     data.loc[charging_mask, "Battery State"] = "charging"
     data.loc[discharging_mask, "Battery State"] = "discharging"
-
+    logger.info("labels assigned")
     return data
 
 
@@ -46,6 +51,7 @@ def find_cc_and_cv(
     time_t: float = 10.0,
     rest_t: int = 8,
     cc_t: int = 5,
+    logger_name: str = 'pbdp_logger'
 ) -> pd.DataFrame:
     """
     Identify constant current (CC) and constant voltage (CV) periods in the
@@ -65,11 +71,13 @@ def find_cc_and_cv(
         pd.DataFrame: The input DataFrame with 'CCCV' column updated with 'CC'
                         and 'CV' labels.
     """
+    logger = logging.getLogger(logger_name)
     # Check if required columns are present in dataframe
     required_cols = ["Battery State"]
     for col in required_cols:
         if col not in data.columns:
             data = add_state_label(data)
+            logger.info(f"{col} column not found in dataframe, added it")
 
     data["CCCV"] = "N/A"
     rest_mask = data["Current [A]"].abs().lt(current_epsilon)
@@ -78,6 +86,7 @@ def find_cc_and_cv(
     cc_intervals = data[~rest_mask].groupby(
         data["Current [A]"].diff().abs().gt(current_epsilon).cumsum()
     )
+    logger.info("CC intervals created")
 
     # Loop over each constant current interval and update columns
     for _, group in cc_intervals:
@@ -92,15 +101,18 @@ def find_cc_and_cv(
                 data.loc[group_indices, "CCCV"] = "CC"
 
     CC_mask = data["CCCV"] == "CC"
+    logger.info("CC intervals updated")
+
     # Group rows with constant voltage values
     cv_intervals = data[~rest_mask].groupby(
         data[~CC_mask]["Voltage [V]"].diff().abs().gt(voltage_epsilon).cumsum()
     )
+    logger.info("CV intervals created")
 
     # Loop over each constant voltage interval and update columns
     for i, group in cv_intervals:
         if group["Time [s]"].iloc[-1] - group["Time [s]"].iloc[0] >= time_t:
             group_indices = group.index.tolist()
             data.loc[group_indices, "CCCV"] = "CV"
-
+    logger.info("CV intervals updated")
     return data
