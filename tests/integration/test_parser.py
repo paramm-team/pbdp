@@ -1,14 +1,14 @@
 #
 # Tests for the Parser class
 #
-import src
+import pbdp
 
 import unittest
 
 
 class TestOptimisationResult(unittest.TestCase):
     def test_init(self):
-        parser = src.Parser()
+        parser = pbdp.Parser()
 
         cycler_keywords = {
             "maccor": ["Cyc#", "Rec#", "TestTime"],

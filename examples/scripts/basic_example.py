@@ -1,3 +1,4 @@
-import src
+import pbdp
+logger = pbdp.create_logger()
 
-parser = src.Parser()
+parser = pbdp.Parser()

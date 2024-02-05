@@ -24,20 +24,11 @@ Example:
 
 """
 
-from setuptools import setup, find_packages
+from setuptools import setup
 
 setup(
     name="pybatterydataproc",
     description='Your package description',
     author='Alexandru Pascu, part of the pybamm-param team from WMG',
     packages=['modules', 'classes', 'utils'],
-    install_requires=[
-        "numpy>=1.21.0",
-        "pandas>=1.3.0",
-        "matplotlib>=3.4.0",
-        "chardet>=4.0.0",
-        "openpyxl>=3.0.0",
-        "plotly>=5.0.0",
-        "pyarrow>=12.0.1"
-    ],
 )
