@@ -55,14 +55,14 @@ class Parser:
         # instead of "time"
         self.cycler_keywords = (
             {
-                "maccor": ["Cyc#", "Rec#", "TestTime", "Rec"],
+                "maccor": ["Cyc#", "Rec#", "TestTime", "Rec,"],
                 "vmp3": ["mode", "(Q-Qo)/mA.h", "freq/Hz", "time/s", "Ecell/V"],
                 "bitrode": ["Exclude", "Total Time", "Loop Counter#1", "Amp-Hours"],
                 "digatron": ["Step,", "AhAccu", "Prog Time"],
                 "ivium": ["freq. /Hz", "Z1 /ohm"],
                 "gamry": ["Pt\tT", "IERange"],
                 "solatron": ["Time (s)", "Z' (Ohm)"],
-                "novonix": ["Potential (V)", "Cycle Number"],
+                "novonix": ["Potential (V)", "Cycle Number", "\bDate\b \band\b \bTime\b"],
             }
             if bool(cycler_keywords) is False
             else cycler_keywords
@@ -70,7 +70,7 @@ class Parser:
 
         # Define the standard time columns
         self.standard_time = (
-            ["Total Time, (h:m:s)", "Run Time (h)"]
+            ["Total Time, (h:m:s)", "Run Time (h)", "TestTime"]
             if bool(standard_time) is False
             else standard_time
         )
@@ -109,11 +109,12 @@ class Parser:
                     "Ewe-Ece/V",
                     "Ecell/V",
                     "Voltage (V)",
-                    "Voltage (V)",
+                    "Voltage (v)",
+                    " Voltage (V)",
                     "Voltage, V",
                 ],
-                "Voltage We [V]": ["Ewe/V"],
-                "Voltage Ce [V]": ["Ece/V"],
+                "Working electrode potential [V]": ["Ewe/V"],
+                "Counter electrode potential [V]": ["Ece/V"],
                 "AmpHrs [Ah]": [
                     "Amp-Hours AH",
                     "Amp-Hours",
@@ -169,6 +170,7 @@ class Parser:
                     "Time, (s)",
                     "Total Time S",
                 ],
+                "Absolute time": ["e and Time", "DPT Time",],
             }
             if bool(standard_headers) is False
             else standard_headers
@@ -239,18 +241,18 @@ class Parser:
                 writer.writerow(row)
 
         return csv_file_path
-
+    
     def find_words(self, file_path: str) -> tuple:
         """
-        Find specific keywords in a file and return the starting position of
-        the match.
-
+        Searches the file contents for specific keywords related to different types of equipment.
+        The search is performed iteratively for each equipment type defined in self.cycler_keywords.
+    
         Args:
-            file_path (str): The path to the file to search for keywords.
-
+            file_path (str): Path to the file to be processed.
+    
         Returns:
-            tuple: A tuple containing the starting position of the match and
-                    the encoding of the file.
+            tuple: A tuple containing the file pointer position of the first keyword match and the equipment type,
+                   or (None, None) if no match is found.
         """
         # Check if the file is in xlsx format and convert if necessary
         if file_path.endswith(".xlsx"):
@@ -264,23 +266,30 @@ class Parser:
                 raise ValueError("Something is wrong with your input file")
             else:
                 contents = contents.decode(encoding)
-
-        # Compile the regular expression pattern using cycler_keywords
-        data = []
-        for value in self.cycler_keywords.values():
-            data.extend([rf"\s*{re.escape(word)}\s*" for word in value])
-        pattern = re.compile("|".join(data))
-
-        # Search for the keywords in the file
-        match = pattern.search(contents)
-        if match:
-            with open(file_path, "rb") as f:
-                # If a match is found, set the file pointer to that location
-                f.seek(match.start())
-                return (f.tell(), encoding)
-        else:
-            # If no match is found, raise an exception
-            raise ValueError(f"No keywords found in file: {file_path}")
+    
+        # Iterate over each equipment type in the cycler_keywords dictionary
+        for equipment_type, keywords in self.cycler_keywords.items():
+            patterns = []
+            for phrase in keywords:
+                # Split the phrase into words and escape each word
+                escaped_words = [re.escape(word) for word in phrase.split()]
+                # Join the words with '\s*' to allow for flexible whitespace
+                pattern = r'\s*'.join(escaped_words)
+                patterns.append(pattern)
+        
+            # Compile a regex pattern for the current set of keywords/phrases
+            full_pattern = re.compile("|".join(patterns))
+    
+            # Search for the keywords in the file contents
+            match = full_pattern.search(contents)
+            if match:
+                with open(file_path, "rb") as f:
+                    # If a match is found, set the file pointer to that location and return the position and the equipment type
+                    f.seek(match.start())
+                    return (f.tell(), encoding, equipment_type)
+                
+        # If no match is found, raise an exception
+        raise ValueError(f"No keywords found in file: {file_path}")
 
     def split_file(self, pointer: int, file_path: str, save_option: str) -> tuple:
         """
@@ -308,15 +317,20 @@ class Parser:
             # Split the file into two parts based on the pointer position
             metadata = contents[:pointer]
             data = contents[pointer:]
+            
+        # Define the delimiters to check for
+        delimiters = (b',', b'\t', b';', b' ')
 
-        # Find the first non-empty line in the data part
-        first_line = next(line for line in data.splitlines() if line.strip())
+        # Convert binary data to a list of lines for processing
+        lines = data.splitlines()
 
-        # Remove all commas from the first line
-        modified_line = first_line.replace(b",", b"")
+        # Check if the first line is empty or starts with a delimiter
+        if lines and (not lines[0].strip() or lines[0].lstrip().startswith(delimiters)):
+            # Remove the first line
+            lines = lines[1:]
 
-        # Construct the modified data with the modified first line
-        data.replace(first_line, modified_line, 1)
+        # Reconstruct the data without the first line
+        data = b'\n'.join(lines)
 
         if save_option == "save all":
             # Get the current directory of the file
@@ -335,8 +349,7 @@ class Parser:
             with open(metadata_output_path, "wb") as f:
                 f.write(metadata)
 
-            # Save the data part to a new file with the original file format in
-            # the output directory
+            # Save the data part to a new file with the original file format in the output directory
             data_file_name = file_name + "_data" + file_ext
             data_output_path = os.path.join(output_dir, data_file_name)
             with open(data_output_path, "wb") as f:
@@ -378,12 +391,13 @@ class Parser:
         # Read file using the appropriate Pandas function based on its extension
         if file_ext == ".csv":
             df = pd.read_csv(temp_file, encoding=encoding)
-        elif file_ext == ".xlsx":
-            df = pd.read_excel(temp_file, encoding=encoding)
+        elif file_ext == '.xlsx':
+            df = pd.read_csv(temp_file, encoding=encoding) #xlsx is converted to csv before
         elif file_ext == ".txt":
             df = pd.read_csv(temp_file, sep="\t", encoding=encoding)
         elif file_ext == ".mpt":
-            df = pd.read_table(temp_file, encoding=encoding)
+            # df = pd.read_table(temp_file, encoding=encoding)
+            df = pd.read_csv(temp_file, sep="\t", encoding=encoding)
         elif file_ext == ".DTA":
             df = pd.read_table(temp_file, sep="\t", encoding=encoding)
         else:
@@ -456,7 +470,7 @@ class Parser:
 
         # Convert columns with new headers to numeric data types
         for col in data.columns:
-            if col in self.standard_headers:
+            if col in self.standard_headers and col != "Absolute time":
                 data[col] = pd.to_numeric(data[col], errors="coerce")
 
         return data
@@ -479,7 +493,7 @@ class Parser:
                 5  # You can adjust this threshold based on the data NOT IMPLEMENTED YET
             )
             t_index = (data["Step Number"].diff() > diff_threshold).idxmax()
-            if isinstance(t_index, int):
+            if isinstance(t_index, int) and t_index > 0:
                 data = data.iloc[:t_index]
 
         # Get the column(s) with unnamed header and drop them
@@ -491,6 +505,51 @@ class Parser:
         data = data.reset_index(drop=True)
 
         return data
+    
+    def sanity_check(self, data: pd.DataFrame) -> str:
+        """
+        Performs a sanity check on the provided DataFrame to determine if it is a
+        normal experiment or a frequency experiment and ensures the presence of necessary data.
+        Required Columns:
+            Normal experiments (flexible): Either 'Voltage [V]' or 'Working electrode potential [V]',
+                                            along with 'Current [A]' and 'Time [s]'.
+            Frequency experiments: 'freq [Hz]', 'ReZ [Ohm]', 'ImZ [Ohm]'
+
+        Args:
+            data (pd.DataFrame): The DataFrame to be checked. It should contain data from experiments.
+
+        Returns:
+            str: A confirmation message indicating that the sanity check has passed.
+
+        Raises:
+            ValueError: If any required columns are missing based on the determined experiment type.
+        """
+        check_normal = ["Current [A]", "Time [s]"]
+        check_either_normal = [("Voltage [V]", "Working electrode potential [V]")]
+        check_freq = ["freq [Hz]", "ReZ [Ohm]", "ImZ [Ohm]"]
+
+        # Determine if the data is likely a frequency experiment
+        is_freq_experiment = any(col in data.columns for col in check_freq)
+        is_normal_experiment = any(col in data.columns for col_pair in check_either_normal for col in col_pair) or \
+                               any(col in data.columns for col in check_normal)
+
+        if is_freq_experiment or not is_normal_experiment:
+            # Check for missing columns in frequency experiments
+            missing_freq = [col for col in check_freq if col not in data.columns]
+            if missing_freq:
+                raise ValueError(f"Your frequency data is missing the following columns: {', '.join(missing_freq)}")
+        else:
+            # Check for missing columns in normal experiments
+            missing_normal = [col for col in check_normal if col not in data.columns]
+            missing_either = all(col not in data.columns for col_pair in check_either_normal for col in col_pair)
+
+            if missing_normal or missing_either:
+                missing_cols = ', '.join(missing_normal)
+                if missing_either:
+                    missing_cols += '; At least one of each pair is required: ' + ', '.join([' or '.join(pair) for pair in check_either_normal])
+                raise ValueError(f"Your data is missing the following columns for normal experiments: {missing_cols}")
+
+        return "Sanity check passed!"
 
     def data_importer(
         self,
@@ -515,28 +574,41 @@ class Parser:
             print_option (str, optional): Option for printing data and plots.
                                             Defaults to "".
         """
+        # Initialize data to None for each file iteration
+        data = None
+
+        # Process each file
         for file in self.look_for_files(path_or_file):
-            # Process each file
-            pointer, encoding = self.find_words(file)
-            metadata, data = self.split_file(pointer, file, save_option)
-            data = self.read_data_to_pandas(data, file, encoding)
-            data = self.change_units(data)
-            data = self.change_headers(data)
-            data = self.remove_unwanted(data)
+            try:
+                pointer, encoding, equipment_type = self.find_words(file)
+                metadata, data = self.split_file(pointer, file, save_option)
+                data = self.read_data_to_pandas(data, file, encoding)
+                data = self.change_units(data)
+                data = self.change_headers(data)
+                data = self.remove_unwanted(data)
+                self.sanity_check(data)
+            except Exception as e:
+                print(f"An error occurred: {e} in file {file}")
+                continue # Skip to the next file
+
+            # Further processing only if the first part succeeds
             if state_option == "yes":
                 try:
                     data = add_state_label(data)
                 except Exception as e:
                     print(f"An error occurred: {e} in file {file}")
+
             # Save the file if the option is set to 'save all' or 'save'
             if save_option in ["save all", "save"]:
                 save_file(data, file_type, file)
+
             # Print the dataframe and the plots if print_option is 'yes' or all
             if print_option in ["yes", "diff"]:
                 try:
                     display_data(data)
                 except Exception as e:
                     print(f"An error occurred: {e} in file {file}")
+
             # Print the diff on current and voltage if print_option is 'all'
             if print_option == "diff":
                 try:
@@ -544,4 +616,5 @@ class Parser:
                 except Exception as e:
                     print(f"An error occurred: {e} in file {file}")
 
+        # Return the data from the last file processed, or None if all failed
         return data
