@@ -219,9 +219,9 @@ class TestOptimisationResult():
         segment.segment_data(data, requests=["cv, rest"])
         segment.segment_data(data, requests=["rest, cc 1.67A"])
         pulse = segment.segment_data(data, requests=["pulse -10A"])
-        segment.segment_data(data=pulse)
+        segment.reset_time(data=pulse)
         pulse = segment.segment_data(data, requests=["pulse -10A"])
-        segment.segment_data(data=data, segments=pulse)
+        segment.find_rest(data=data, segments=pulse)
 
     def test_convert_xlsx_to_csv(self):
         """Test the convert_xlsx_to_csv method"""
