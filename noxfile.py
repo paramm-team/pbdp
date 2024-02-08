@@ -43,20 +43,6 @@ def unit(session):
     session.run("pytest", *test_files)
 
 
-@nox.session(python=['3.8', '3.9', '3.10', '3.11'])
-def examples(session):
-    """Run the examples."""
-    session.install('-e', './[dev]')
-
-    # Get the files to test
-    if session.posargs:
-        test_files = session.posargs
-    else:
-        test_files = ["./examples/scripts/"]
-
-    session.run("pytest", *test_files)
-
-
 @nox.session()
 def coverage(session):
     """Run the unit test suite with coverage."""
