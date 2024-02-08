@@ -461,14 +461,17 @@ def reset_time(data: list, logger_name: str = 'pbdp_logger') -> pd.DataFrame:
     """
     logger = logging.getLogger(logger_name)
     logger.info("Resetting time")
+
     # Reset the Time column to start from 0 and keep the original one seperate
-    if len(data) == 1:
-        data[0]["Original Time [s]"] = data["Time [s]"]
-        data[0]["Time [s]"] = data["Time [s]"] - data["Time [s]"].iloc[0]
-    else:
-        for df in data:
-            df["Original Time [s]"] = df["Time [s]"]
-            df["Time [s]"] = df["Time [s]"] - df["Time [s]"].iloc[0]
+    def map_fun(df):
+        return df.assign(
+            **{
+                "Original Time [s]": df["Time [s]"],
+                "Time [s]": df["Time [s]"] - df["Time [s]"].iloc[0]
+            }
+        )
+    data = list(map(map_fun, data))
+
     return data
 
 
