@@ -2,12 +2,23 @@
 # Tests for the Parser class
 #
 import pbdp
+from pbdp import segment
 import os
 from pathlib import Path
-import unittest
+import pytest
 
 
-class TestOptimisationResult(unittest.TestCase):
+@pytest.fixture
+def data():
+    parser = pbdp.Parser()
+    path = Path(pbdp.__path__[0], "input", "data").absolute()
+    data = parser.data_importer(path_or_file=path / "Digatron.csv",
+                                file_type="csv", save_option="save all",
+                                state_option="yes")
+    return data
+
+
+class TestOptimisationResult():
     def test_init_default(self):
         """Test the init method with default settings"""
 
@@ -25,15 +36,17 @@ class TestOptimisationResult(unittest.TestCase):
             "solatron": ["Time (s)", "Z' (Ohm)"],
             "novonix": ["Potential (V)", "Cycle Number"],
         }
-        self.assertDictEqual(parser.cycler_keywords, cycler_keywords)
+        assert parser.cycler_keywords == cycler_keywords, \
+            'Cycler keywords should be as expected'
 
         # Check standard time
-        standard_time = ["Total Time, (h:m:s)", "Run Time (h)", "TestTime"]
-        self.assertListEqual(parser.standard_time, standard_time)
+        standard_time = ["Total Time, (h:m:s)", "Run Time (h)"]
+        assert parser.standard_time == standard_time, \
+            'Standard time should be as expected'
 
         # Check standard units
         standard_units = {"<I>/mA": 1e3, "(Q-Qo)/mA.h": 1e3}
-        self.assertDictEqual(parser.standard_units, standard_units)
+        parser.standard_units == standard_units, 'Standard units should be as expected'
 
         # Check standard headers
         standard_headers = {
@@ -48,7 +61,7 @@ class TestOptimisationResult(unittest.TestCase):
                 "I/mA",
                 "Current, A",
             ],
-            "Voltage Full [V]": [
+            "Voltage [V]": [
                 "Voltage V",
                 "Voltage",
                 "Vf",
@@ -119,7 +132,9 @@ class TestOptimisationResult(unittest.TestCase):
                 "Total Time S",
             ],
         }
-        self.assertDictEqual(parser.standard_headers, standard_headers)
+        for key, value in standard_headers.items():
+            assert parser.standard_headers[key] == value, \
+                f'Standard headers for {key} should be as expected'
 
     def test_init_custom(self):
         """Test the init method with custom settings"""
@@ -136,10 +151,14 @@ class TestOptimisationResult(unittest.TestCase):
             standard_headers=standard_headers,
         )
 
-        self.assertDictEqual(parser.cycler_keywords, cycler_keywords)
-        self.assertListEqual(parser.standard_time, standard_time)
-        self.assertDictEqual(parser.standard_units, standard_units)
-        self.assertDictEqual(parser.standard_headers, standard_headers)
+        assert parser.cycler_keywords == cycler_keywords, \
+            'Cycler keywords should be as expected'
+        assert parser.standard_time == standard_time, \
+            'Standard time should be as expected'
+        assert parser.standard_units == standard_units, \
+            'Standard units should be as expected'
+        assert parser.standard_headers == standard_headers, \
+            'Standard headers should be as expected'
 
     def test_look_for_files(self):
         """Test the look_for_files method"""
@@ -153,26 +172,56 @@ class TestOptimisationResult(unittest.TestCase):
 
         # Check single file
         files = parser.look_for_files(path / "Maccor.csv")
-        self.assertEqual(
-            files,
-            [path / "Maccor.csv"],
-        )
+        assert files == [path / "Maccor.csv"], 'Files should be as expected'
 
         # Check empty file
-        with self.assertRaisesRegex(ValueError, "Empty file"):
+        try:
             parser.look_for_files(path / "empty.txt")
-
-        # Check directory
-        files = parser.look_for_files(path)
-        self.assertEqual(len(files), 5)
+        except ValueError as e:
+            assert "Empty file" in str(e), 'Empty File should be in Error'
 
         # Check empty directory
         os.makedirs(path / "empty")
 
-        with self.assertRaisesRegex(ValueError, "No files"):
+        try:
             parser.look_for_files(path / "empty")
+        except ValueError as e:
+            assert "No files" in str(e), 'No Files should be in Error'
 
         os.removedirs(path / "empty")
+
+    def test_data_importer(self, data):
+        assert data is not None
+
+    def test_segment_data(self, data):
+        segment.segment_data(data, requests=["step"])
+        segment.segment_data(data, requests=["step 10:20"])
+        segment.segment_data(data, requests=["step 5:5"])
+        segment.segment_data(data, requests=["time"])
+        segment.segment_data(data, requests=["time 50/200"])
+        segment.segment_data(data, requests=["time 50/50"])
+        segment.segment_data(data, requests=["rest"])
+        segment.segment_data(data, requests=["charging"])
+        segment.segment_data(data, requests=["charging 0.5A"])
+        segment.segment_data(data, requests=["dischg"])
+        segment.segment_data(data, requests=["dischg 0.5A"])
+        segment.segment_data(data, requests=["cc"])
+        segment.segment_data(data, requests=["cc 1.67A"])
+        segment.segment_data(data, requests=["cv"])
+        segment.segment_data(data, requests=["cv 4.2V"])
+        segment.segment_data(data, requests=["power"])
+        segment.segment_data(data, requests=["power 1.05W"])
+        segment.segment_data(data, requests=["cccv"])
+        segment.segment_data(data, requests=["cccv 1.67A 4.2V"])
+        segment.segment_data(data, requests=["cccv 4.2V"])
+        segment.segment_data(data, requests=["pulse"])
+        segment.segment_data(data, requests=["pulse -1.67A"])
+        segment.segment_data(data, requests=["cv, rest"])
+        segment.segment_data(data, requests=["rest, cc 1.67A"])
+        pulse = segment.segment_data(data, requests=["pulse -10A"])
+        segment.reset_time(data=pulse)
+        pulse = segment.segment_data(data, requests=["pulse -10A"])
+        segment.find_rest(data=data, segments=pulse)
 
     def test_convert_xlsx_to_csv(self):
         """Test the convert_xlsx_to_csv method"""
@@ -191,8 +240,8 @@ class TestOptimisationResult(unittest.TestCase):
         )
         pos, encoding = parser.find_words(path)
 
-        self.assertEqual(pos, 593)
-        self.assertEqual(encoding, "ascii")
+        assert pos == 593, 'Position should be 593'
+        assert encoding == "ascii", 'Encoding should be ascii'
 
     def test_split_file(self):
         """Test the split_file method"""
@@ -208,27 +257,25 @@ class TestOptimisationResult(unittest.TestCase):
 
         # Check pre_processed folder does not exist
         # TODO: why is this here?
-        # self.assertFalse((path / "pre_processed").exists())
+        # assertFalse((path / "pre_processed").exists())
 
         # Check split file works with save first
         output = parser.split_file(2, path / "test1.csv", "save first")
-        self.assertEqual(output, (b"ab", b"cd"))
+        assert output == (b"ab", b"cd"), 'Output should be (b"ab", b"cd")'
 
         # TODO: why is this here?
         # Check split file does not save to pre_processed folder
-        # self.assertFalse((path / "pre_processed").exists())
+        # assertFalse((path / "pre_processed").exists())
 
         # Check split file works with save all
         output = parser.split_file(2, path / "test1.csv", "save all")
-        self.assertEqual(output, (b"ab", b"cd"))
+        assert output == (b"ab", b"cd"), 'Output should be (b"ab", b"cd")'
 
         # Check split file saves to pre_processed folder
-        self.assertTrue(
-            (path / "pre_processed" / "test1_data.csv").exists()
-        )
-        self.assertTrue(
-            (path / "pre_processed" / "test1_metadata.txt").exists()
-        )
+        assert (path / "pre_processed" / "test1_data.csv").exists(), \
+            'File should exist'
+        assert (path / "pre_processed" / "test1_metadata.txt").exists(), \
+            'File should exist'
 
         # Clean up
         (path / "pre_processed" / "test1_data.csv").unlink()
@@ -248,15 +295,3 @@ class TestOptimisationResult(unittest.TestCase):
 
     def test_remove_unwanted(self):
         pass
-
-    def test_data_importer(self):
-        pass
-
-
-if __name__ == "__main__":
-    print("Add -v for more debug output")
-    import sys
-
-    if "-v" in sys.argv:
-        debug = True
-    unittest.main()

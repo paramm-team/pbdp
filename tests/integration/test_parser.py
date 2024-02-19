@@ -3,10 +3,8 @@
 #
 import pbdp
 
-import unittest
 
-
-class TestOptimisationResult(unittest.TestCase):
+class TestOptimisationResult():
     def test_init(self):
         parser = pbdp.Parser()
 
@@ -20,13 +18,4 @@ class TestOptimisationResult(unittest.TestCase):
             "solatron": ["Time (s)", "Z' (Ohm)"],
             "novonix": ["Potential (V)", "Cycle Number"],
         }
-        self.assertDictEqual(parser.cycler_keywords, cycler_keywords)
-
-
-if __name__ == "__main__":
-    print("Add -v for more debug output")
-    import sys
-
-    if "-v" in sys.argv:
-        debug = True
-    unittest.main()
+        assert parser.cycler_keywords == cycler_keywords

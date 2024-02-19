@@ -460,15 +460,15 @@ class Parser:
 
         # Read file using the appropriate Pandas function based on its extension
         if file_ext == ".csv":
-            df = pd.read_csv(temp_file, encoding=encoding)
-        elif file_ext == '.xlsx':
-            df = pd.read_csv(temp_file, encoding=encoding) #xlsx is converted to csv before
+            df = pd.read_csv(temp_file, encoding=encoding, low_memory=False)
+        elif file_ext == ".xlsx":
+            df = pd.read_csv(temp_file, encoding=encoding, low_memory=False) #xlsx is converted to csv before
         elif file_ext == ".txt":
-            df = pd.read_csv(temp_file, sep="\t", encoding=encoding)
+            df = pd.read_csv(temp_file, sep="\t", encoding=encoding, low_memory=False)
         elif file_ext == ".mpt":
-            df = pd.read_csv(temp_file, sep="\t", encoding=encoding)
+            df = pd.read_csv(temp_file, sep="\t", encoding=encoding, low_memory=False)
         elif file_ext == ".DTA":
-            df = pd.read_table(temp_file, sep="\t", encoding=encoding)
+            df = pd.read_table(temp_file, sep="\t", encoding=encoding, low_memory=False)
         else:
             self.logger.warning(f"Invalid file format, {file_ext},\
                                 deleting temporary file")
@@ -808,7 +808,9 @@ class Parser:
                     data = add_state_label(data)
                     self.logger.info(f"State labels added to file, {file}")
                 except Exception as e:
-                    self.logger.warn(f"An error occurred: {e} when processing {file}")
+                    self.logger.warning(
+                        f"An error occurred: {e} when processing {file}"
+                    )
             # Save the file if the option is set to 'save all' or 'save'
             if save_option in ["save all", "save"]:
                 save_file(data, file_type, file)

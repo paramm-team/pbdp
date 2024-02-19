@@ -107,9 +107,11 @@ def find_periods(
     logger.info(f"First mask: {first_mask}")
 
     start_indices_first = data.index[
-        (first_mask) & (~first_mask.shift(1).fillna(False))
+        (first_mask) & (~first_mask.shift(1, fill_value=False))
     ]
-    end_indices_first = data.index[(first_mask) & (~first_mask.shift(-1).fillna(False))]
+    end_indices_first = data.index[
+        (first_mask) & (~first_mask.shift(-1, fill_value=False))
+    ]
     logger.info(f"Start indices: {start_indices_first}")
     logger.info(f"End indices: {end_indices_first}")
 
@@ -165,10 +167,10 @@ def find_periods(
                 )
     # Identify the start and end of second input periods
     start_indices_second = data.index[
-        (second_mask) & (~second_mask.shift(1).fillna(False))
+        (second_mask) & (~second_mask.shift(1, fill_value=False))
     ]
     end_indices_second = data.index[
-        (second_mask) & (~second_mask.shift(-1).fillna(False))
+        (second_mask) & (~second_mask.shift(-1, fill_value=False))
     ]
 
     second_indices = list(zip(start_indices_second, end_indices_second))
@@ -459,14 +461,17 @@ def reset_time(data: list, logger_name: str = 'pbdp_logger') -> pd.DataFrame:
     """
     logger = logging.getLogger(logger_name)
     logger.info("Resetting time")
+
     # Reset the Time column to start from 0 and keep the original one seperate
-    if len(data) == 1:
-        data[0]["Original Time [s]"] = data["Time [s]"]
-        data[0]["Time [s]"] = data["Time [s]"] - data["Time [s]"].iloc[0]
-    else:
-        for df in data:
-            df["Original Time [s]"] = df["Time [s]"]
-            df["Time [s]"] = df["Time [s]"] - df["Time [s]"].iloc[0]
+    def map_fun(df):
+        return df.assign(
+            **{
+                "Original Time [s]": df["Time [s]"],
+                "Time [s]": df["Time [s]"] - df["Time [s]"].iloc[0]
+            }
+        )
+    data = list(map(map_fun, data))
+
     return data
 
 
