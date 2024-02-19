@@ -1,8 +1,10 @@
 import pandas as pd
 from .states import find_cc_and_cv
+import logging
 
 
-def group_by_input_state(data: pd.DataFrame, input_str: str) -> list:
+def group_by_input_state(data: pd.DataFrame, input_str: str,
+                         logger_name: str = 'pbdp_logger') -> list:
     """
     Group the data based on a specific column value.
 
@@ -13,19 +15,23 @@ def group_by_input_state(data: pd.DataFrame, input_str: str) -> list:
     Returns:
         list: List of DataFrames, each representing a group.
     """
+    logger = logging.getLogger(logger_name)
     if input_str == "battery":
         # Group the DataFrame by consecutive values in "Battery State" column
         groups = (data["Battery State"] != data["Battery State"].shift()).cumsum()
         grouped_df = data.groupby(groups)
         group_list = [group for _, group in grouped_df]
+        logger.info("Data grouped by Battery State")
     elif input_str == "CCCV":
         # Group the DataFrame by consecutive values in "CCCV" column
         groups = (data["CCCV"] != data["CCCV"].shift()).cumsum()
         grouped_df = data.groupby(groups)
         group_list = [group for _, group in grouped_df]
+        logger.info("Data grouped by CCCV")
     else:
         # If input_str is not recognized, keep the original DataFrame
         group_list = data
+        logger.warning(f"Input string not recognized: {input_str}, no grouping")
 
     return group_list
 
@@ -37,6 +43,7 @@ def find_periods(
     curr: float = None,
     volt: float = None,
     pulse_t: int = 5,
+    logger_name: str = 'pbdp_logger'
 ) -> list:
     """
     Find periods based on specified input states.
@@ -52,8 +59,10 @@ def find_periods(
     Returns:
         list: List of DataFrames representing the identified periods.
     """
+    logger = logging.getLogger(logger_name)
     # Identify the start and end of first input periods
     if first in ["rest", "charging", "discharging"]:
+        logger.info(f"First input1: {first}")
         if curr is None:
             first_mask = data["Battery State"] == first
         else:
@@ -61,6 +70,7 @@ def find_periods(
                 data["Current [A]"].round(2) == curr
             )
     elif first in ["cc", "cv"]:
+        logger.info(f"First input2: {first}")
         if first == "cc":
             if curr is None:
                 first_mask = data["CCCV"] == "CC"
@@ -73,9 +83,10 @@ def find_periods(
                 first_mask = data["CCCV"] == "CV"
             else:
                 first_mask = (data["CCCV"] == "CV") & (
-                    data["Voltage Full [V]"].round(2) == volt
+                    data["Voltage [V]"].round(2) == volt
                 )
     elif first == "cccv":
+        logger.info(f"First input3: {first}")
         if curr is None:
             first_mask = (
                 (data["CCCV"] == "CC") & (data["Battery State"] == "charging")
@@ -93,11 +104,16 @@ def find_periods(
             first_mask = (data["CCCV"] == "CC") & (data["Current [A]"].round(2) == curr)
     else:
         return "None provided"
+    logger.info(f"First mask: {first_mask}")
 
     start_indices_first = data.index[
-        (first_mask) & (~first_mask.shift(1).fillna(False))
+        (first_mask) & (~first_mask.shift(1, fill_value=False))
     ]
-    end_indices_first = data.index[(first_mask) & (~first_mask.shift(-1).fillna(False))]
+    end_indices_first = data.index[
+        (first_mask) & (~first_mask.shift(-1, fill_value=False))
+    ]
+    logger.info(f"Start indices: {start_indices_first}")
+    logger.info(f"End indices: {end_indices_first}")
 
     if first == "pulse":
         pulse_indices = [
@@ -113,6 +129,7 @@ def find_periods(
         return pulse_periods
 
     first_indices = list(zip(start_indices_first, end_indices_first))
+    logger.info(f"First indices: {first_indices}")
 
     if first == "cccv":
         if volt is None:
@@ -124,6 +141,7 @@ def find_periods(
                 & (data["Voltage [V]"].round(2) == volt)
             )
     if second in ["rest", "charging", "discharging"]:
+        logger.info(f"Second input1: {second}")
         if volt is None:
             second_mask = data["Battery State"] == second
         else:
@@ -131,6 +149,7 @@ def find_periods(
                 data["Current [A]"].round(2) == volt
             )
     elif second in ["cc", "cv"]:
+        logger.info(f"Second input2: {second}")
         if second == "cc":
             if curr is None:
                 second_mask = data["CCCV"] == "CC"
@@ -139,6 +158,7 @@ def find_periods(
                     data["Current [A]"].round(2) == curr
                 )
         elif second == "cv":
+            logger.info(f"Second input2: {second}")
             if volt is None:
                 second_mask = data["CCCV"] == "CV"
             else:
@@ -147,13 +167,14 @@ def find_periods(
                 )
     # Identify the start and end of second input periods
     start_indices_second = data.index[
-        (second_mask) & (~second_mask.shift(1).fillna(False))
+        (second_mask) & (~second_mask.shift(1, fill_value=False))
     ]
     end_indices_second = data.index[
-        (second_mask) & (~second_mask.shift(-1).fillna(False))
+        (second_mask) & (~second_mask.shift(-1, fill_value=False))
     ]
 
     second_indices = list(zip(start_indices_second, end_indices_second))
+    logger.info(f"Second indices: {second_indices}")
 
     # Combine adjusted start and end indices to get the ranges of the periods
     periods = []
@@ -162,10 +183,12 @@ def find_periods(
             if first_end == second_start - 1:
                 periods.append(data.loc[first_start:second_end])
 
+    logger.info(f"Periods: {periods}")
     return periods
 
 
-def segment_data(data: pd.DataFrame, requests: list, reset: bool = False) -> list:
+def segment_data(data: pd.DataFrame, requests: list, reset: bool = False,
+                 logger_name: str = 'pbdp_logger') -> list:
     """
     Segments the battery data based on the provided requests.
 
@@ -177,11 +200,14 @@ def segment_data(data: pd.DataFrame, requests: list, reset: bool = False) -> lis
     Returns:
         list: A list of filtered DataFrames representing the segmented data.
     """
+    logger = logging.getLogger(logger_name)
     # Check if request can be performed
-    required_cols = ["Current [A]", "Voltage Full [V]", "Time [s]"]
+    required_cols = ["Current [A]", "Voltage [V]", "Time [s]"]
     missing_cols = [col for col in required_cols if col not in data.columns]
     if missing_cols:
         missing_col_names = ", ".join(missing_cols)
+        logger.error(f"Action cannot be performed because {missing_col_names},\
+                      required columns not found in dataframe")
         raise ValueError(
             f"Action cannot be performed because {missing_col_names}, "
             "required columns not found in dataframe"
@@ -192,6 +218,8 @@ def segment_data(data: pd.DataFrame, requests: list, reset: bool = False) -> lis
     for col in required_cols:
         if col not in data.columns:
             data = find_cc_and_cv(data)
+
+    logger.info('Required columns found in dataframe')
 
     filtered_df_list = []
 
@@ -217,6 +245,7 @@ def segment_data(data: pd.DataFrame, requests: list, reset: bool = False) -> lis
             filtered_df_list.extend(
                 find_periods(data, first_request, second_request, curr, volt)
             )
+            logger.info(f"Handled Sub-request: {sub_request}")
             continue
 
         # Process each sub-request
@@ -225,6 +254,7 @@ def segment_data(data: pd.DataFrame, requests: list, reset: bool = False) -> lis
             filtered_df_list.extend(
                 [group for group in df_list if "rest" in group["Battery State"].values]
             )
+            logger.info(f"Handled Sub-request: {sub_request}")
         elif "charging" in sub_request:
             # Segment based on charging state
             df_list = group_by_input_state(data, "battery")
@@ -248,6 +278,7 @@ def segment_data(data: pd.DataFrame, requests: list, reset: bool = False) -> lis
                         if "charging" in group["Battery State"].values
                     ]
                 )
+            logger.info(f"Handled Sub-request: {sub_request}")
         elif "dischg" in sub_request:
             # Segment based on discharging state
             df_list = group_by_input_state(data, "battery")
@@ -271,6 +302,7 @@ def segment_data(data: pd.DataFrame, requests: list, reset: bool = False) -> lis
                         if "discharging" in group["Battery State"].values
                     ]
                 )
+            logger.info(f"Handled Sub-request: {sub_request}")
         elif "cc" in sub_request:
             # Segment based on constant current state
             df_list = group_by_input_state(data, "CCCV")
@@ -290,6 +322,7 @@ def segment_data(data: pd.DataFrame, requests: list, reset: bool = False) -> lis
                 filtered_df_list.extend(
                     [group for group in df_list if "CC" in group["CCCV"].values]
                 )
+            logger.info(f"Handled Sub-request: {sub_request}")
         elif "cv" in sub_request:
             # Segment based on constant voltage state
             df_list = group_by_input_state(data, "CCCV")
@@ -308,6 +341,7 @@ def segment_data(data: pd.DataFrame, requests: list, reset: bool = False) -> lis
                 filtered_df_list.extend(
                     [group for group in df_list if "CV" in group["CCCV"].values]
                 )
+            logger.info(f"Handled Sub-request: {sub_request}")
         elif "cccv" in sub_request:
             # Segment based on cc values
             cccv_A = cccv_V = None
@@ -320,6 +354,7 @@ def segment_data(data: pd.DataFrame, requests: list, reset: bool = False) -> lis
                 else:
                     cccv_V = float(sub_request.split("V")[0].split(" ")[1])
             filtered_df_list.extend(find_periods(data, "cccv", None, cccv_A, cccv_V))
+            logger.info(f"Handled Sub-request: {sub_request}")
         elif "pulse" in sub_request:
             # Segment based on pulse values
             if "A" in sub_request:
@@ -328,6 +363,7 @@ def segment_data(data: pd.DataFrame, requests: list, reset: bool = False) -> lis
             else:
                 # Segment all pulse periods
                 filtered_df_list.extend(find_periods(data, "pulse"))
+            logger.info(f"Handled Sub-request: {sub_request}")
         # Segment based on step number
         elif "step" in sub_request:
             if ":" in sub_request:
@@ -349,6 +385,7 @@ def segment_data(data: pd.DataFrame, requests: list, reset: bool = False) -> lis
                     )
             else:
                 filtered_df_list.append(data)
+            logger.info(f"Handled Sub-request: {sub_request}")
         # Segment based on time
         elif "time" in sub_request:
             if "/" in sub_request:
@@ -376,9 +413,10 @@ def segment_data(data: pd.DataFrame, requests: list, reset: bool = False) -> lis
                     )
             else:
                 filtered_df_list.extend(data)
+            logger.info(f"Handled Sub-request: {sub_request}")
         elif "power" in sub_request:
             # Segment based on power
-            data["Power [W]"] = data["Voltage Full [V]"] * data["Current [A]"]
+            data["Power [W]"] = data["Voltage [V]"] * data["Current [A]"]
             #df_list = group_by_input_state(data, "Power")
             df_list = data[~data["Current [A]"].abs().lt(0.001)].groupby(
                 data["Power [W]"].diff().abs().gt(0.01).cumsum()
@@ -388,23 +426,27 @@ def segment_data(data: pd.DataFrame, requests: list, reset: bool = False) -> lis
                 pwr_W = float(sub_request.split("W")[0].split(" ")[1])
                 for _, group in df_list:
                     filtered_group = group[group["Power [W]"].round(2) == pwr_W]
-                    if not (
-                        filtered_group.empty and
-                        (filtered_group["Time [s]"].iloc[-1] -
-                         filtered_group["Time [s]"].iloc[0] >= 10)
-                    ):
-                        filtered_df_list.append(filtered_group)
+                    if not filtered_group.empty :
+                        if not (
+                            filtered_group["Time [s]"].iloc[-1] -
+                            filtered_group["Time [s]"].iloc[0] >= 10
+                        ):
+                            filtered_df_list.append(filtered_group)
             else:
                 # Segment all power periods
                 filtered_df_list.append(data)
+            logger.info(f"Handled Sub-request: {sub_request}")
 
-    if bool is True:
+    if reset is True:
+        logger.info("Resetting time")
+        logger.info("Filtered the list")
         return reset_time(filtered_df_list)
     else:
+        logger.info("Filtered the list")
         return filtered_df_list
 
 
-def reset_time(data: list) -> pd.DataFrame:
+def reset_time(data: list, logger_name: str = 'pbdp_logger') -> pd.DataFrame:
     """
     Resets the 'Time [s]' column in each DataFrame in a list to start from 0,
     while preserving the original time in a new column 'Original Time [s]'.
@@ -417,22 +459,27 @@ def reset_time(data: list) -> pd.DataFrame:
         list: List of the same DataFrames with the 'Time [s]' column reset and
               'Original Time [s]' column added in each DataFrame.
     """
+    logger = logging.getLogger(logger_name)
+    logger.info("Resetting time")
+
     # Reset the Time column to start from 0 and keep the original one seperate
-    if len(data) == 1:
-        data[0]["Original Time [s]"] = data["Time [s]"]
-        data[0]["Time [s]"] = data["Time [s]"] - data["Time [s]"].iloc[0]
-    else:
-        for df in data:
-            df["Original Time [s]"] = df["Time [s]"]
-            df["Time [s]"] = df["Time [s]"] - df["Time [s]"].iloc[0]
+    def map_fun(df):
+        return df.assign(
+            **{
+                "Original Time [s]": df["Time [s]"],
+                "Time [s]": df["Time [s]"] - df["Time [s]"].iloc[0]
+            }
+        )
+    data = list(map(map_fun, data))
+
     return data
 
 
-def find_rest(
-        data: pd.DataFrame,
-        segments: list,
-        current_epsilon: float = 0.001
-) -> list:
+def find_rest(data: pd.DataFrame,
+              segments: list,
+              current_epsilon: float = 0.001,
+              logger_name: str = 'pbdp_logger'
+              ) -> list:
     """
     Finds and includes rest periods adjacent to each segment in a list based on a
     current threshold.
@@ -451,6 +498,8 @@ def find_rest(
         list: List of DataFrames, each including the original segment and its adjacent
               rest periods.
     """
+    logger = logging.getLogger(logger_name)
+
     def process_segment(segment: pd.DataFrame):
         # Get the start and end indices of the segment and create a rest mask
         rest_mask = data["Current [A]"].abs().lt(current_epsilon)
@@ -461,10 +510,15 @@ def find_rest(
         rest_change = rest_mask.ne(rest_mask.shift())
         rest_starts = rest_change.index[rest_change & rest_mask]
         rest_ends = rest_change.index[rest_change & ~rest_mask]
+        logger.info(f"Rest segments found at: {rest_starts}, {rest_ends}")
 
         # Find the last rest period start before the segment and the first after
         last_rest_start_before_segment = rest_starts[rest_starts < segment_start].max()
         first_rest_end_after_segment = rest_ends[rest_ends > segment_end].min()
+        logger.info(
+            f"Last rest start before segment: {last_rest_start_before_segment}\
+                First rest end after segment: {first_rest_end_after_segment}"
+        )
 
         # Adjust start and end indices to include the rest periods
         if pd.notna(last_rest_start_before_segment):
@@ -478,4 +532,5 @@ def find_rest(
     # Process each segment in the list
     updated_segments = [process_segment(segment) for segment in segments]
 
+    logger.info("Rest periods found")
     return updated_segments

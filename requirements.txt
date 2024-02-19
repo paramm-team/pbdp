@@ -1,5 +1,0 @@
-numpy
-pandas
-chardet
-openpyxl
-plotly
