@@ -260,7 +260,7 @@ class Parser:
         self.logger.debug(f"Excel file, {file_path}, converted to CSV, {csv_file_path}")
         return csv_file_path
 
-    def find_words(self, file_path: Path, cycler) -> tuple:
+    def find_words(self, file_path: Path, cycler=False) -> tuple:
         """
         Searches the file contents for specific keywords related to different types of
         equipment. The search is performed iteratively for each equipment type defined
@@ -291,7 +291,7 @@ class Parser:
                 contents = contents.decode(encoding)
                 self.logger.info("File content read")
 
-        if not cycler:
+        if cycler is False:
             # Iterate over each equipment type in the cycler_keywords dictionary
             for equipment_type, keywords in self.cycler_keywords.items():
                 patterns = []
@@ -849,7 +849,7 @@ class Parser:
                 data = self.absolute_time(metadata, data, encoding)
                 self.sanity_check(data)
             except Exception as e:
-                self.logger.warn(f"An error occurred: {e} when processing {file}")
+                self.logger.warning(f"An error occurred: {e} when processing {file}")
             self.logger.info(f"Data imported from file, {file}")
             if state_option == "yes":
                 try:
