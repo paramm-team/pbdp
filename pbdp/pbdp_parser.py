@@ -11,6 +11,7 @@ import pandas as pd
 from .states import add_state_label
 from .save import save_file
 from .plots import display_data, plot_current_voltage_diff
+from typing import Union
 
 
 class Parser:
@@ -187,7 +188,7 @@ class Parser:
 
         self.logger.info("Parser initialized")
 
-    def look_for_files(self, path_or_file: Path) -> Path:
+    def look_for_files(self, path_or_file: Path) -> list[Path]:
         """
         Locate files based on the provided path or file.
 
@@ -195,7 +196,7 @@ class Parser:
             path_or_file (Path): The path to a file or a directory.
 
         Returns:
-            list: A list of paths to non-empty files found.
+            List[Path]: A list of paths to non-empty files found.
 
         Raises:
             ValueError: If the provided path or file is invalid or empty.
@@ -230,7 +231,7 @@ class Parser:
             self.logger.warning(f"Invalid path or file, {path_or_file}")
             raise ValueError(f"Invalid path or file: {path_or_file}")
 
-    def convert_xlsx_to_csv(self, file_path: Path) -> str:
+    def convert_xlsx_to_csv(self, file_path: Path) -> Path:
         """
         Convert an Excel (xlsx) file to a CSV file.
 
@@ -254,13 +255,14 @@ class Parser:
         with csv_file_path.open(mode='w') as csv_file:
             writer = csv.writer(csv_file)
             # Write each row in the Excel sheet to the CSV file
-            for row in sheet.iter_rows(values_only=True):
-                writer.writerow(row)
+            if sheet is not None:
+                for row in sheet.iter_rows(values_only=True):
+                    writer.writerow(row)
 
         self.logger.debug(f"Excel file, {file_path}, converted to CSV, {csv_file_path}")
         return csv_file_path
 
-    def find_words(self, file_path: Path, cycler=False) -> tuple:
+    def find_words(self, file_path: Path, cycler: str ="") -> tuple:
         """
         Searches the file contents for specific keywords related to different types of
         equipment. The search is performed iteratively for each equipment type defined
@@ -291,7 +293,7 @@ class Parser:
                 contents = contents.decode(encoding)
                 self.logger.info("File content read")
 
-        if cycler is False:
+        if not cycler:
             # Iterate over each equipment type in the cycler_keywords dictionary
             for equipment_type, keywords in self.cycler_keywords.items():
                 patterns = []
@@ -317,7 +319,7 @@ class Parser:
                         return (f.tell(), encoding, equipment_type)
         # If the line number is given for the header of the line set the file pointer
         # to that location
-        elif cycler.isnumeric():
+        elif str(cycler).isnumeric():
             cycler = int(cycler)
             with open(file_path, "rb") as f:
                 current_line = 1
@@ -325,13 +327,13 @@ class Parser:
                     line = f.readline()
                     if line == b'':
                         # Reached EOF before the desired line number
-                        return -1
+                        return (-1,)  # Fix: Return -1 as a tuple
                     current_line += 1
                 # The file pointer is now at the beginning of the desired line
                 return (f.tell(), encoding, 'cannot determine')
         elif cycler in self.cycler_keywords.keys():
             patterns = []
-            for phrase in self.cycler_keywords[cycler]:
+            for phrase in self.cycler_keywords[str(cycler)]:
                 # Split the phrase into words and escape each word
                 escaped_words = [re.escape(word) for word in phrase.split()]
                 # Join the words with '\s*' to allow for flexible whitespace
@@ -354,6 +356,7 @@ class Parser:
 
         # If no match is found, raise an exception
         self.logger.warning(f"No keywords found in file, {file_path}")
+        return (None, None)
 
     def split_file(self, pointer: int, file_path: Path, save_option: str) -> tuple:
         """
@@ -658,12 +661,16 @@ class Parser:
                 self.logger.info("Date and time found in metadata.")
                 return match.group(1)
 
-        # If no matches are found, return None.
-            self.logger.warning("Date and time not found in metadata.")
-        return None
+        # If no matches are found, return an empty string.
+        self.logger.warning("Date and time not found in metadata.")
+        return ""
 
-    def absolute_time(self, metadata: bytes, data: pd.DataFrame, encoding: str)\
-            -> pd.DataFrame:
+    def absolute_time(
+            self,
+            metadata: Union[bytes, str],
+            data: pd.DataFrame,
+            encoding: str
+    ) -> pd.DataFrame:
         """
         Adds an 'Absolute Time [s]' column to the provided DataFrame based on the
         experiment's start time found in metadata. The method attempts to identify the
@@ -694,6 +701,7 @@ class Parser:
         # Decode metadata from bytes to string if necessary.
         if isinstance(metadata, bytes):
             metadata = metadata.decode(encoding)
+        metadata = str(metadata)
 
         # Attempt to find start time from metadata.
         start_time_str = self.find_start_time(metadata)
