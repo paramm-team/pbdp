@@ -262,7 +262,7 @@ class Parser:
         self.logger.debug(f"Excel file, {file_path}, converted to CSV, {csv_file_path}")
         return csv_file_path
 
-    def find_words(self, file_path: Path, cycler: str ="") -> tuple:
+    def find_words(self, file_path: Path, cycler: str = "") -> tuple:
         """
         Searches the file contents for specific keywords related to different types of
         equipment. The search is performed iteratively for each equipment type defined
