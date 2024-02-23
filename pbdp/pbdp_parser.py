@@ -12,6 +12,7 @@ from .states import add_state_label
 from .save import save_file
 from .plots import display_data, plot_current_voltage_diff
 from typing import Union
+from typing import List
 
 
 class Parser:
@@ -188,7 +189,7 @@ class Parser:
 
         self.logger.info("Parser initialized")
 
-    def look_for_files(self, path_or_file: Path) -> list[Path]:
+    def look_for_files(self, path_or_file: Path) -> List[Path]:
         """
         Locate files based on the provided path or file.
 
