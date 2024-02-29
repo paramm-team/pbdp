@@ -4,8 +4,6 @@
 [![codecov](https://codecov.io/gh/paramm-team/data_processing/graph/badge.svg?token=7Xmov38bCi)](https://codecov.io/gh/paramm-team/data_processing)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
-**WARNING:** this package is still under development.
-
 This package provides tools to process and handle battery cycler experimental data. Examples on how to run this package can be found in the [examples folder](./examples)
 
 ## 🚀 Installing python-battery-data-processing
@@ -16,7 +14,7 @@ pip install virtualenv
 
 The module dependencies are listed in `pyproject.toml`, the dependancies which are non optional which are installed with the package.
 
-The optional dependancies are split into `dev` and `docs`. `dev` are used for testing and linting, `docs` are used for building the sphinx documentation.
+The optional dependencies are split into `dev` and `docs`. `dev` are used for testing and linting, `docs` are used for building the sphinx documentation.
 
 ### Linux & MacOS
 

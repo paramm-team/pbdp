@@ -27,20 +27,21 @@ class TestOptimisationResult():
 
         # Check keywords
         cycler_keywords = {
-            "maccor": ["Cyc#", "Rec#", "TestTime"],
+            "maccor": ["Cyc#", "Rec#", "TestTime", "Rec,"],
             "vmp3": ["mode", "(Q-Qo)/mA.h", "freq/Hz", "time/s", "Ecell/V"],
             "bitrode": ["Exclude", "Total Time", "Loop Counter#1", "Amp-Hours"],
             "digatron": ["Step,", "AhAccu", "Prog Time"],
             "ivium": ["freq. /Hz", "Z1 /ohm"],
             "gamry": ["Pt\tT", "IERange"],
             "solatron": ["Time (s)", "Z' (Ohm)"],
-            "novonix": ["Potential (V)", "Cycle Number"],
+            "novonix": ["Potential (V)", "Cycle Number",
+                        "\bDate\b \band\b \bTime\b"],
         }
         assert parser.cycler_keywords == cycler_keywords, \
             'Cycler keywords should be as expected'
 
         # Check standard time
-        standard_time = ["Total Time, (h:m:s)", "Run Time (h)"]
+        standard_time = ["Total Time, (h:m:s)", "Run Time (h)", "TestTime"]
         assert parser.standard_time == standard_time, \
             'Standard time should be as expected'
 
@@ -70,12 +71,14 @@ class TestOptimisationResult():
                 "Potential (V)",
                 "Ewe-Ece/V",
                 "Ecell/V",
+                " Ecell/V"
                 "Voltage (V)",
-                "Voltage (V)",
+                "Voltage (v)",
+                " Voltage (V)",
                 "Voltage, V",
             ],
-            "Voltage We [V]": ["Ewe/V"],
-            "Voltage Ce [V]": ["Ece/V"],
+            "Working electrode potential [V]": ["Ewe/V"],
+            "Counter electrode potential [V]": ["Ece/V"],
             "AmpHrs [Ah]": [
                 "Amp-Hours AH",
                 "Amp-Hours",
@@ -131,6 +134,7 @@ class TestOptimisationResult():
                 "Time, (s)",
                 "Total Time S",
             ],
+            "Absolute time": ["e and Time", "DPT Time",],
         }
         for key, value in standard_headers.items():
             assert parser.standard_headers[key] == value, \
@@ -238,10 +242,11 @@ class TestOptimisationResult():
             "data",
             "Maccor.csv",
         )
-        pos, encoding = parser.find_words(path)
+        pos, encoding, cycler = parser.find_words(path)
 
-        assert pos == 593, 'Position should be 593'
+        assert pos == 573, 'Position should be 573'
         assert encoding == "ascii", 'Encoding should be ascii'
+        # assert cycler == #TODO: what should this be?
 
     def test_split_file(self):
         """Test the split_file method"""
