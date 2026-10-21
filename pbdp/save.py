@@ -41,7 +41,6 @@ def save_file(data: pd.DataFrame, file_type: str, file_path: Path,
     elif file_type == "parquet":
         new_file_name = f"{file_name}_cleaned_data.parquet"
         output_path = output_dir / new_file_name
-        data = data.applymap(lambda x: pd.to_numeric(x, errors='coerce'))
         data.to_parquet(output_path, index=False)
         logger.info(f"Output parquet file saved at {output_path}")
     elif file_type == "pickle":

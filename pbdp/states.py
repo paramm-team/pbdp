@@ -93,10 +93,15 @@ def find_cc_and_cv(
         if group["Time [s]"].iloc[-1] - group["Time [s]"].iloc[0] >= time_t:
             group_indices = group.index.tolist()
 
-            # Check if there is a 'rest' or 'CC' period before the group
+            # Thresholds count rows, not index labels. A recording can
+            # begin during CC without a preceding rest period.
+            start = data.index.get_loc(group_indices[0])
             if (
-                data.loc[group_indices[0] - rest_t, "Battery State"] == "rest"
-                or data.loc[group_indices[0] - cc_t, "CCCV"] == "CC"
+                start == 0
+                or (start >= rest_t
+                    and data.iloc[start - rest_t]["Battery State"] == "rest")
+                or (start >= cc_t
+                    and data.iloc[start - cc_t]["CCCV"] == "CC")
             ):
                 data.loc[group_indices, "CCCV"] = "CC"
 

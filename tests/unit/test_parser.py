@@ -13,7 +13,7 @@ def data():
     parser = pbdp.Parser()
     path = Path(pbdp.__path__[0], "input", "data").absolute()
     data = parser.data_importer(path_or_file=path / "Digatron.csv",
-                                file_type="csv", save_option="save all",
+                                file_type="csv", save_option="none",
                                 state_option="yes")
     return data
 
@@ -46,8 +46,9 @@ class TestOptimisationResult():
             'Standard time should be as expected'
 
         # Check standard units
-        standard_units = {"<I>/mA": 1e3, "(Q-Qo)/mA.h": 1e3}
-        parser.standard_units == standard_units, 'Standard units should be as expected'
+        standard_units = {"<I>/mA": 1e-3, "I/mA": 1e-3,
+                          "(Q-Qo)/mA.h": 1e-3, "Charge (C)": 1 / 3600}
+        assert parser.standard_units == standard_units
 
         # Check standard headers
         standard_headers = {
@@ -71,7 +72,7 @@ class TestOptimisationResult():
                 "Potential (V)",
                 "Ewe-Ece/V",
                 "Ecell/V",
-                " Ecell/V"
+                " Ecell/V",
                 "Voltage (V)",
                 "Voltage (v)",
                 " Voltage (V)",
@@ -248,13 +249,10 @@ class TestOptimisationResult():
         assert encoding == "ascii", 'Encoding should be ascii'
         # assert cycler == #TODO: what should this be?
 
-    def test_split_file(self):
+    def test_split_file(self, tmp_path):
         """Test the split_file method"""
-        path = Path(
-            pbdp.__path__[0],
-            "input",
-            "data",
-        )
+        path = tmp_path
+        (path / "test1.csv").write_bytes(b"abcd")
 
         parser = pbdp.Parser()
 

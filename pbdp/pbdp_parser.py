@@ -1,5 +1,7 @@
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
+from io import BytesIO, StringIO
+from tempfile import NamedTemporaryFile
 
 import chardet
 import openpyxl
@@ -88,8 +90,10 @@ class Parser:
         # Define the standard units
         self.standard_units = (
             {
-                "<I>/mA": 1e3,
-                "(Q-Qo)/mA.h": 1e3,
+                "<I>/mA": 1e-3,
+                "I/mA": 1e-3,
+                "(Q-Qo)/mA.h": 1e-3,
+                "Charge (C)": 1 / 3600,
             }
             if bool(standard_units) is False
             else standard_units
@@ -118,7 +122,7 @@ class Parser:
                     "Potential (V)",
                     "Ewe-Ece/V",
                     "Ecell/V",
-                    " Ecell/V"
+                    " Ecell/V",
                     "Voltage (V)",
                     "Voltage (v)",
                     " Voltage (V)",
@@ -232,36 +236,35 @@ class Parser:
             self.logger.warning(f"Invalid path or file, {path_or_file}")
             raise ValueError(f"Invalid path or file: {path_or_file}")
 
+    def _read_file_bytes(self, file_path: Path) -> bytes:
+        """Read text exports or serialize an Excel active sheet in memory."""
+        if file_path.suffix.lower() != ".xlsx":
+            return file_path.read_bytes()
+        workbook = openpyxl.load_workbook(file_path, read_only=True)
+        try:
+            stream = StringIO(newline="")
+            writer = csv.writer(stream)
+            if workbook.active is not None:
+                writer.writerows(workbook.active.iter_rows(values_only=True))
+            return stream.getvalue().encode("utf-8")
+        finally:
+            workbook.close()
+
     def convert_xlsx_to_csv(self, file_path: Path) -> Path:
+        """Write Excel's active sheet to a unique temporary CSV.
+
+        The caller owns the returned file and must remove it after use.
+        The importer itself reads Excel in memory without temporary files.
         """
-        Convert an Excel (xlsx) file to a CSV file.
-
-        Args:
-            file_path (str): The path to the Excel file to be converted.
-
-        Returns:
-            str: The path to the converted CSV file.
-        """
-        # Load the Excel workbook
-        workbook = openpyxl.load_workbook(str(file_path.resolve()))
-        # Get the active sheet
-        sheet = workbook.active
-        self.logger.debug(f"Excel file, {file_path}, loaded")
-
-        # Define the path for the temporary CSV file
-        current_dir = file_path.parent
-        csv_file_path = current_dir / "converted_temporary.csv"
-
-        # Write Excel sheet data to the CSV file
-        with csv_file_path.open(mode='w') as csv_file:
-            writer = csv.writer(csv_file)
-            # Write each row in the Excel sheet to the CSV file
-            if sheet is not None:
-                for row in sheet.iter_rows(values_only=True):
-                    writer.writerow(row)
-
-        self.logger.debug(f"Excel file, {file_path}, converted to CSV, {csv_file_path}")
-        return csv_file_path
+        contents = self._read_file_bytes(file_path)
+        with NamedTemporaryFile(prefix="pbdp-", suffix=".csv", delete=False) as stream:
+            try:
+                stream.write(contents)
+            except BaseException:
+                stream.close()
+                Path(stream.name).unlink(missing_ok=True)
+                raise
+        return Path(stream.name)
 
     def find_words(self, file_path: Path, cycler: str = "") -> tuple:
         """
@@ -276,23 +279,11 @@ class Parser:
             tuple: A tuple containing the file pointer position of the first keyword
                    match and the equipment type, or (None, None) if no match is found.
         """
-        # Check if the file is in xlsx format and convert if necessary
-        if file_path.suffix == ".xlsx":
-            self.logger.info(f"Converting Excel file, {file_path}, to CSV")
-            file_path = self.convert_xlsx_to_csv(file_path)
-
-        # Read the contents of the file and detect the encoding
-        with file_path.open(mode="rb") as f:
-            contents = f.read()
-            encoding = chardet.detect(contents)["encoding"]
-            if encoding is None:
-                self.logger.warning(f"No encoding detected; Something is wrong with\
-                                     your input file, {file_path}")
-                raise ValueError("Something is wrong with your input file")
-            else:
-                self.logger.info(f"Encoding detected: {encoding}")
-                contents = contents.decode(encoding)
-                self.logger.info("File content read")
+        raw_contents = self._read_file_bytes(file_path)
+        encoding = chardet.detect(raw_contents)["encoding"]
+        if encoding is None:
+            raise ValueError(f"Cannot detect encoding for {file_path}")
+        contents = raw_contents.decode(encoding)
 
         if not cycler:
             # Iterate over each equipment type in the cycler_keywords dictionary
@@ -311,10 +302,10 @@ class Parser:
                 # Search for the keywords in the file contents
                 match = full_pattern.search(contents)
                 if match:
-                    with open(file_path, "rb") as f:
+                    with BytesIO(raw_contents) as f:
                         # If a match is found, set the file pointer to that location
                         # and return the position and the equipment type
-                        f.seek(match.start())
+                        f.seek(len(contents[:match.start()].encode(encoding)))
                         self.logger.info(f"Keywords found in file, {file_path}, at\
                                          position {match.start()}, pointer set")
                         return (f.tell(), encoding, equipment_type)
@@ -322,7 +313,7 @@ class Parser:
         # to that location
         elif str(cycler).isnumeric():
             cycler = int(cycler)
-            with open(file_path, "rb") as f:
+            with BytesIO(raw_contents) as f:
                 current_line = 1
                 while current_line < cycler:
                     line = f.readline()
@@ -345,10 +336,10 @@ class Parser:
             # Search for the keywords in the file contents
             match = full_pattern.search(contents)
             if match:
-                with open(file_path, "rb") as f:
+                with BytesIO(raw_contents) as f:
                     # If a match is found, set the file pointer to that location and
                     # return the position and the equipment type
-                    f.seek(match.start())
+                    f.seek(len(contents[:match.start()].encode(encoding)))
                     self.logger.info(f"Keywords found in file, {file_path}, at position\
                              {match.start()}, pointer set")
                     return (f.tell(), encoding, cycler)
@@ -376,16 +367,9 @@ class Parser:
         """
         name = file_path
 
-        # Check if the file is in xlsx format and convert if necessary
-        if file_path.suffix == ".xlsx":
-            self.logger.info(f"file {file_path} is in xlsx format")
-            file_path = file_path.parent / "converted_temporary.csv"
-
-        with file_path.open(mode="rb") as f:
-            contents = f.read()
-            # Split the file into two parts based on the pointer position
-            metadata = contents[:pointer]
-            data = contents[pointer:]
+        contents = self._read_file_bytes(file_path)
+        metadata = contents[:pointer]
+        data = contents[pointer:]
 
         # Define the delimiters to check for
         delimiters = (b',', b'\t', b';', b' ')
@@ -408,7 +392,8 @@ class Parser:
             # Get the current directory of the file
             current_dir = name.parent
             # Extract the file name and extension from the input file path
-            file_name, file_ext = name.stem, name.suffix
+            file_name = name.stem
+            file_ext = ".csv" if name.suffix.lower() == ".xlsx" else name.suffix
 
             # Create a subfolder if it doesn't exist
             output_dir = current_dir / "pre_processed"
@@ -431,17 +416,7 @@ class Parser:
                 f.write(data)
                 self.logger.info(f"Data saved to {data_output_path}")
 
-            if "converted_temporary.csv" in file_path.name:
-                self.logger.info(f"Deleting temporary file, {file_path}")
-                file_path.unlink()
-
-            return (metadata, data)
-
-        else:
-            if "converted_temporary.csv" in file_path.name:
-                self.logger.info(f"Deleting temporary file, {file_path}")
-                file_path.unlink()
-            return (metadata, data)
+        return (metadata, data)
 
     def read_data_to_pandas(
         self, data: bytes, filepath: Path, encoding: str
@@ -458,39 +433,13 @@ class Parser:
             pd.DataFrame: A Pandas DataFrame containing the read data.
         """
 
-        # Write data to a temporary file
-        temp_file = filepath.parent / "new_file_name"
-        with temp_file.open(mode="wb") as f:
-            self.logger.info(f"Writing data to temporary file for Pandas Import,\
-                         {temp_file}")
-            f.write(data)
-
-        # Determine file extension
-        file_ext = filepath.suffix
-
-        # Read file using the appropriate Pandas function based on its extension
-        if file_ext == ".csv":
-            df = pd.read_csv(temp_file, encoding=encoding, low_memory=False)
-        elif file_ext == ".xlsx":
-            # xlsx is converted to csv before
-            df = pd.read_csv(temp_file, encoding=encoding, low_memory=False)
-        elif file_ext == ".txt":
-            df = pd.read_csv(temp_file, sep="\t", encoding=encoding, low_memory=False)
-        elif file_ext == ".mpt":
-            df = pd.read_csv(temp_file, sep="\t", encoding=encoding, low_memory=False)
-        elif file_ext == ".DTA":
-            df = pd.read_table(temp_file, sep="\t", encoding=encoding, low_memory=False)
-        else:
-            self.logger.warning(f"Invalid file format, {file_ext},\
-                                deleting temporary file")
-            temp_file.unlink()
+        file_ext = filepath.suffix.lower()
+        separators = {".csv": ",", ".xlsx": ",", ".txt": "\t",
+                      ".mpt": "\t", ".dta": "\t"}
+        if file_ext not in separators:
             raise ValueError(f"Invalid file format: {file_ext}")
-
-        # Remove the temporary file
-        self.logger.info(f"Data read, deleting temporary file, {temp_file}")
-        temp_file.unlink()
-
-        return df
+        return pd.read_csv(BytesIO(data), sep=separators[file_ext],
+                           encoding=encoding, low_memory=False)
 
     def change_units(
         self,
@@ -510,7 +459,9 @@ class Parser:
         for col in data.columns:
             if col in self.standard_units:
                 # Convert values in columns with standard units
-                data[col] = data[col] * self.standard_units[col]
+                data[col] = pd.to_numeric(data[col], errors="coerce") * (
+                    self.standard_units[col]
+                )
                 self.logger.info(f"Units converted to standard for {col}")
             elif col in self.standard_time:
                 if col == "Run Time (h)":
@@ -737,8 +688,9 @@ class Parser:
                               in metadata.")
 
         # Calculate and add 'Absolute Time [s]' to the DataFrame.
-        data["Absolute Time [s]"] = data["Time [s]"].cumsum().apply(
-            lambda x: start_time + timedelta(seconds=x))
+        data["Absolute Time [s]"] = start_time + pd.to_timedelta(
+            data["Time [s]"], unit="s"
+        )
         self.logger.info("Absolute time added to the data frame")
 
         return data

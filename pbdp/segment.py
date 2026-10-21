@@ -303,7 +303,7 @@ def segment_data(data: pd.DataFrame, requests: list, reset: bool = False,
                     ]
                 )
             logger.info(f"Handled Sub-request: {sub_request}")
-        elif "cc" in sub_request:
+        elif sub_request.split()[0] == "cc":
             # Segment based on constant current state
             df_list = group_by_input_state(data, "CCCV")
             if "A" in sub_request:
@@ -323,7 +323,7 @@ def segment_data(data: pd.DataFrame, requests: list, reset: bool = False,
                     [group for group in df_list if "CC" in group["CCCV"].values]
                 )
             logger.info(f"Handled Sub-request: {sub_request}")
-        elif "cv" in sub_request:
+        elif sub_request.split()[0] == "cv":
             # Segment based on constant voltage state
             df_list = group_by_input_state(data, "CCCV")
             if "V" in sub_request:
@@ -412,7 +412,7 @@ def segment_data(data: pd.DataFrame, requests: list, reset: bool = False,
                         data[data["Time [s]"].between(start_time, stop_time)]
                     )
             else:
-                filtered_df_list.extend(data)
+                filtered_df_list.append(data)
             logger.info(f"Handled Sub-request: {sub_request}")
         elif "power" in sub_request:
             # Segment based on power
