@@ -375,21 +375,19 @@ class Parser:
         metadata = contents[:pointer]
         data = contents[pointer:]
 
-        # Define the delimiters to check for
-        delimiters = (b',', b'\t', b';', b' ')
         self.logger.info(f"File, {file_path}, split at position {pointer}")
 
         # Convert binary data to a list of lines for processing
         lines = data.splitlines()
 
-        # Check if the first line is empty or starts with a delimiter
-        if lines and (not lines[0].strip() or lines[0].lstrip().startswith(delimiters)):
-            # Remove the first line
+        # A leading delimiter can represent an unnamed column in a real header.
+        # Only discard genuinely blank prefix lines.
+        while lines and not lines[0].strip():
             lines = lines[1:]
 
         # Construct the modified data with the modified first line
         data = b'\n'.join(lines)
-        self.logger.info("Delimiters removed from first line of data")
+        self.logger.info("Blank prefix lines removed from data")
 
         if save_option == "save all":
             self.logger.info("Save All option selected")
@@ -442,6 +440,14 @@ class Parser:
                       ".mpt": "\t", ".dta": "\t"}
         if file_ext not in separators:
             raise ValueError(f"Invalid file format: {file_ext}")
+        # pandas renames repeated headers (e.g. Current -> Current.1), hiding
+        # ambiguous measurements from later standardized-name checks.
+        reader = csv.reader(StringIO(data.decode(encoding)),
+                            delimiter=separators[file_ext])
+        raw_header = next((row for row in reader if row), [])
+        named = [name.strip() for name in raw_header if name.strip()]
+        if len(named) != len(set(named)):
+            raise ValueError("Duplicate raw column headers; select one source")
         return pd.read_csv(BytesIO(data), sep=separators[file_ext],
                            encoding=encoding, low_memory=False)
 

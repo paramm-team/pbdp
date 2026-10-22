@@ -12,8 +12,9 @@
   sensor values. Strip leading units rows, but reject invalid required values.
 - Validate required, finite measurements even when start-time metadata is absent;
   check three-electrode voltage using the signed working-minus-counter potential.
-- Detect whole header lines, normalize surrounding whitespace and reject duplicate
-  standardized columns instead of merging ambiguous measurements.
+- Detect whole header lines, preserve delimiter-prefixed headers, normalize
+  surrounding whitespace and reject duplicate raw or standardized columns before
+  ambiguous measurements can be renamed by pandas.
 - Read imports in memory and remove fixed temporary filenames that could overwrite
   or delete neighbouring files. The standalone Excel-to-CSV helper returns a unique
   temporary path; callers remain responsible for removing that path after use.
@@ -22,7 +23,8 @@
 
 - Match complete request names so `cccv` and `discharging` reach the correct branch;
   reject empty/unknown simple requests and normalize whitespace.
-- Use row positions for adjacent phases, preserving original index labels.
+- Use row positions for adjacent phases and automatic classification, preserving
+  original index labels even when labels repeat.
 - Keep terminal CC/CV phases, constrain current/voltage correctly for supported
   requests, and avoid reading past the end of a recording during pulse detection.
 - Include only immediately adjacent rest rows, including rest at the recording end.

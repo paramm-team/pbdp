@@ -82,3 +82,19 @@ def test_rest_at_end_of_recording_is_included():
     frame = pd.DataFrame({'Current [A]': [1, 1, 0, 0]}, index=[10, 20, 30, 40])
     result = find_rest(frame, [frame.iloc[:2]])
     assert_frame_equal(result[0], frame)
+
+
+@pytest.mark.parametrize('index', [
+    [0, 0, 1, 1, 1, 2, 2], ['a', 'b', 'a', 'c', 'b', 'c', 'a'],
+])
+def test_automatic_classification_preserves_duplicate_index(index):
+    frame = pd.DataFrame({
+        'Time [s]': [0, 5, 10, 15, 20, 25, 30],
+        'Current [A]': [1, 1, 1, 1, .7, .4, .2],
+        'Voltage [V]': [3.5, 3.7, 3.9, 4.2, 4.2, 4.2, 4.2],
+    }, index=index)
+    result = segment_data(frame, ['cccv'])
+    assert len(result) == 1
+    assert result[0].index.tolist() == index
+    assert result[0]['CCCV'].tolist() == ['CC'] * 4 + ['CV'] * 3
+    assert result[0]['Time [s]'].tolist() == [0, 5, 10, 15, 20, 25, 30]

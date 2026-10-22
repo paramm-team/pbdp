@@ -79,6 +79,10 @@ def find_cc_and_cv(
             data = add_state_label(data)
             logger.info(f"{col} column not found in dataframe, added it")
 
+    # Classify on an internal positional index, then copy labels back by row.
+    # A source label may occur more than once and cannot identify one position.
+    source = data
+    data = data.reset_index(drop=True)
     data["CCCV"] = "N/A"
     rest_mask = data["Current [A]"].abs().lt(current_epsilon)
 
@@ -95,7 +99,7 @@ def find_cc_and_cv(
 
             # Thresholds count rows, not index labels. A recording can
             # begin during CC without a preceding rest period.
-            start = data.index.get_loc(group_indices[0])
+            start = group_indices[0]
             if (
                 start == 0
                 or (start >= rest_t
@@ -120,4 +124,5 @@ def find_cc_and_cv(
             group_indices = group.index.tolist()
             data.loc[group_indices, "CCCV"] = "CV"
     logger.info("CV intervals updated")
-    return data
+    source["CCCV"] = data["CCCV"].to_numpy()
+    return source

@@ -86,3 +86,33 @@ def test_unsupported_export_creates_no_output(tmp_path):
     with pytest.raises(ValueError, match='Unsupported'):
         save_file(pd.DataFrame({'x': [1]}), 'unknown', tmp_path / 'sample.csv')
     assert not (tmp_path / 'processed').exists()
+
+
+@pytest.mark.parametrize('header', [
+    'time/s,Current,Current,Ecell/V',
+    'time/s,Current, Current ,Ecell/V',
+    'time/s,"Current","Current",Ecell/V',
+])
+def test_duplicate_raw_headers_fail_before_pandas_mangles_names(tmp_path, header):
+    path = tmp_path / 'duplicate.csv'
+    path.write_text(header + '\n0,1,2,3.5\n', encoding='utf-8')
+    with pytest.raises(ValueError, match='Duplicate raw'):
+        Parser().data_importer(path, save_option='save')
+    assert not (tmp_path / 'processed').exists()
+
+
+def test_leading_empty_header_field_is_preserved(tmp_path):
+    path = tmp_path / 'leading_comma.csv'
+    path.write_text(',time/s,I/mA,Ecell/V\n,0,1000,3.5\n,10,500,4.2\n',
+                    encoding='utf-8')
+    result = Parser().data_importer(path, save_option='none')
+    assert result['Time [s]'].tolist() == [0, 10]
+    assert result['Current [A]'].tolist() == pytest.approx([1, .5])
+    assert result['Voltage [V]'].tolist() == pytest.approx([3.5, 4.2])
+
+
+def test_repeated_unnamed_header_fields_are_allowed(tmp_path):
+    path = tmp_path / 'unnamed.csv'
+    path.write_text(',,time/s,I/mA,Ecell/V\n,,0,1000,3.5\n', encoding='utf-8')
+    result = Parser().data_importer(path, save_option='none')
+    assert result['Current [A]'].tolist() == [1]
