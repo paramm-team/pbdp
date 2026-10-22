@@ -9,6 +9,7 @@ import csv
 from pathlib import Path
 import logging
 
+import numpy as np
 import pandas as pd
 from .states import add_state_label
 from .save import save_file
@@ -305,7 +306,8 @@ class Parser:
                     with BytesIO(raw_contents) as f:
                         # If a match is found, set the file pointer to that location
                         # and return the position and the equipment type
-                        f.seek(len(contents[:match.start()].encode(encoding)))
+                        line_start = contents.rfind("\n", 0, match.start()) + 1
+                        f.seek(len(contents[:line_start].encode(encoding)))
                         self.logger.info(f"Keywords found in file, {file_path}, at\
                                          position {match.start()}, pointer set")
                         return (f.tell(), encoding, equipment_type)
@@ -319,7 +321,9 @@ class Parser:
                     line = f.readline()
                     if line == b'':
                         # Reached EOF before the desired line number
-                        return (-1,)  # Fix: Return -1 as a tuple
+                        raise ValueError(
+                            f"Requested header line is outside {file_path}"
+                        )
                     current_line += 1
                 # The file pointer is now at the beginning of the desired line
                 return (f.tell(), encoding, 'cannot determine')
@@ -339,7 +343,8 @@ class Parser:
                 with BytesIO(raw_contents) as f:
                     # If a match is found, set the file pointer to that location and
                     # return the position and the equipment type
-                    f.seek(len(contents[:match.start()].encode(encoding)))
+                    line_start = contents.rfind("\n", 0, match.start()) + 1
+                    f.seek(len(contents[:line_start].encode(encoding)))
                     self.logger.info(f"Keywords found in file, {file_path}, at position\
                              {match.start()}, pointer set")
                     return (f.tell(), encoding, cycler)
@@ -347,8 +352,7 @@ class Parser:
             print("This cycler is not yet supported")
 
         # If no match is found, raise an exception
-        self.logger.warning(f"No keywords found in file, {file_path}")
-        return (None, None)
+        raise ValueError(f"No recognized data header found in {file_path}")
 
     def split_file(self, pointer: int, file_path: Path, save_option: str) -> tuple:
         """
@@ -456,6 +460,9 @@ class Parser:
                             standard_units.
         """
 
+        data = data.rename(columns=lambda name: name.strip())
+        if not data.columns.is_unique:
+            raise ValueError("Duplicate column headers after trimming whitespace")
         for col in data.columns:
             if col in self.standard_units:
                 # Convert values in columns with standard units
@@ -466,7 +473,7 @@ class Parser:
             elif col in self.standard_time:
                 if col == "Run Time (h)":
                     # Convert hours to seconds
-                    data[col] = data[col] * 3600
+                    data[col] = pd.to_numeric(data[col], errors="coerce") * 3600
                     self.logger.info("Time converted to seconds from Run Time (h)")
                 else:
                     # Convert a string representing a time duration to seconds
@@ -518,6 +525,9 @@ class Parser:
 
         self.logger.info("Headers converted to standard")
         # Rename columns using the new mapping
+        mapped_headers = [new_headers.get(col, col) for col in data.columns]
+        if len(mapped_headers) != len(set(mapped_headers)):
+            raise ValueError("Duplicate standardized column headers; select one source")
         data.rename(columns=new_headers, inplace=True)
 
         # Convert columns with new headers to numeric data types
@@ -540,25 +550,26 @@ class Parser:
             pd.DataFrame: A new DataFrame with unwanted rows and columns removed.
         """
 
-        self.logger.info("Removing unwanted rows and columns")
-        if "Step Number" in data.columns:
-            # Drop rows from threshold index to the end of the DataFrame
-            diff_threshold = (
-                5  # You can adjust this threshold based on the data NOT IMPLEMENTED YET
-            )
-            t_index = (data["Step Number"].diff() > diff_threshold).idxmax()
-            if isinstance(t_index, int) and t_index > 0:
-                data = data.iloc[:t_index]
-
-        # Get the column(s) with unnamed header and drop them
-        unnamed_cols = data.columns[data.columns.str.contains("^Unnamed:")]
-        data = data.drop(columns=unnamed_cols)
-
-        # Drop unwanted NAs created by pre-processing
-        data = data.dropna()
-        data = data.reset_index(drop=True)
-        self.logger.info("Unwanted rows and columns removed")
-        return data
+        # Step numbers can legitimately jump, and optional sensors can be absent.
+        # Neither condition justifies deleting otherwise valid measurements.
+        unnamed = data.columns.str.contains("^Unnamed:")
+        data = data.loc[:, ~unnamed].dropna(how="all")
+        required = ["Time [s]", "Current [A]", "Voltage [V]",
+                    "Working electrode potential [V]",
+                    "Counter electrode potential [V]"]
+        if "freq [Hz]" in data.columns:
+            required = ["freq [Hz]", "ReZ [Ohm]", "ImZ [Ohm]"]
+        available = [col for col in required if col in data.columns]
+        if available and not data.empty:
+            measured = data[available].notna().any(axis=1).to_numpy()
+            first = np.flatnonzero(measured)
+            # Leading units rows become missing numeric measurements. Interior
+            # invalid measurements remain so sanity_check can reject them.
+            count = int(first[0]) if first.size else len(data)
+            if count:
+                self.logger.warning("Removed %s leading non-measurement rows", count)
+                data = data.iloc[count:]
+        return data.reset_index(drop=True)
 
     def find_start_time(self, metadata: str) -> str:
         """
@@ -718,6 +729,8 @@ class Parser:
                         experiment type. or if the three electrode data doesn't make
                         sense working - counter = voltage
         """
+        if data.empty:
+            raise ValueError("Cannot process an empty measurement table")
         check_normal = ["Current [A]", "Time [s]"]
         check_either_normal = [("Voltage [V]", "Working electrode potential [V]",
                                 "Counter electrode potential [V]")]
@@ -755,13 +768,21 @@ class Parser:
                 raise ValueError(f"Your data is missing the following columns for\
                                  normal experiments: {missing_cols}")
 
-        # Check that the thre electrode voltage data makes sense
+        required = check_freq if is_freq_experiment else check_normal
+        if not is_freq_experiment:
+            required = required + [col for col in check_either_normal[0]
+                                   if col in data.columns]
+        numeric = data[required].apply(pd.to_numeric, errors="coerce")
+        if not np.isfinite(numeric.to_numpy(dtype=float)).all():
+            raise ValueError("Required measurement columns must contain finite numbers")
+
+        # Check that the three electrode voltage data makes sense
         three_el = ["Working electrode potential [V]",
                     "Counter electrode potential [V]",
                     "Voltage [V]"]
         if all(elem in data.columns for elem in three_el):
-            check = (data["Working electrode potential [V]"].abs() -
-                     data["Counter electrode potential [V]"].abs()).abs()
+            check = (data["Working electrode potential [V]"] -
+                     data["Counter electrode potential [V]"])
             if not (check - data["Voltage [V]"]).abs().lt(0.02).all():
                 self.logger.warning("Voltage data in three electrode experiment is\
                                     corrupted")
@@ -806,20 +827,17 @@ class Parser:
             data = self.change_units(data)
             data = self.change_headers(data)
             data = self.remove_unwanted(data)
-            try:
-                data = self.absolute_time(metadata, data, encoding)
-                self.sanity_check(data)
-            except Exception as e:
-                self.logger.warning(f"An error occurred: {e} when processing {file}")
+            # Missing start metadata is recoverable; invalid measurements are not.
+            self.sanity_check(data)
+            if "Time [s]" in data.columns:
+                try:
+                    data = self.absolute_time(metadata, data, encoding)
+                except ValueError as e:
+                    self.logger.warning("Absolute time unavailable for %s: %s", file, e)
             self.logger.info(f"Data imported from file, {file}")
             if state_option == "yes":
-                try:
-                    data = add_state_label(data)
-                    self.logger.info(f"State labels added to file, {file}")
-                except Exception as e:
-                    self.logger.warning(
-                        f"An error occurred: {e} when processing {file}"
-                    )
+                data = add_state_label(data)
+                self.logger.info(f"State labels added to file, {file}")
             # Save the file if the option is set to 'save all' or 'save'
             if save_option in ["save all", "save"]:
                 save_file(data, file_type, file)

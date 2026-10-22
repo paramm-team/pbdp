@@ -6,14 +6,15 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pbdp"
+requires-python = ">=3.8"
 description = "A package for processing experimental data for batteries. Under development."
 readme = "README.md"
 license = "BSD-3-Clause"
 authors = [
-    { name = "Alexnadru Pascu, Ferran Brosa Planella, W. Dhammika Widanage, Philip Grylls", email = "Ferran.Brosa-Planella@warwick.ac.uk" },
+    { name = "Alexandru Pascu, Ferran Brosa Planella, W. Dhammika Widanage, Philip Grylls", email = "Ferran.Brosa-Planella@warwick.ac.uk" },
 ]
 dependencies = [
-    "pandas",
+    "pandas>=2.0",
     "numpy",
     "chardet",
     "openpyxl",
@@ -50,6 +51,10 @@ path = "pbdp/version.py"
 [tool.hatch.build.targets.sdist]
 include = [
     "/pbdp",
+    "/tests",
+    "/docs",
+    "/noxfile.py",
+    "/CHANGELOG.md",
 ]
 
 [tool.pytest.ini_options]
