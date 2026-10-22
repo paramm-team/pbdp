@@ -116,3 +116,16 @@ def test_repeated_unnamed_header_fields_are_allowed(tmp_path):
     path.write_text(',,time/s,I/mA,Ecell/V\n,,0,1000,3.5\n', encoding='utf-8')
     result = Parser().data_importer(path, save_option='none')
     assert result['Current [A]'].tolist() == [1]
+
+
+@pytest.mark.parametrize('save_option', ['save', 'save all'])
+def test_unsupported_import_output_fails_before_writing_artifacts(
+    tmp_path, save_option
+):
+    path = tmp_path / 'source.csv'
+    content = 'time/s,I/mA,Ecell/V\n0,1000,3.5\n'
+    path.write_text(content, encoding='utf-8')
+    with pytest.raises(ValueError, match='Unsupported file type'):
+        Parser().data_importer(path, file_type='unknown', save_option=save_option)
+    assert list(tmp_path.iterdir()) == [path]
+    assert path.read_text(encoding='utf-8') == content

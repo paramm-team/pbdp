@@ -31,7 +31,7 @@
 - Return a DataFrame for whole-time requests and handle resetting empty segments.
 - Preserve labels and nullable types in Parquet; repair Feather export and retain
   dotted source stems in output names. Reject unsupported formats before creating
-  output directories.
+  output directories, including preprocessing artifacts during `save all` imports.
 
 ### Validation and compatibility
 

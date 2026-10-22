@@ -3,6 +3,9 @@ import pandas as pd
 import logging
 
 
+SUPPORTED_FILE_TYPES = frozenset({"csv", "parquet", "pickle", "feather"})
+
+
 def save_file(data: pd.DataFrame, file_type: str, file_path: Path,
               logger_name: str = 'pbdp_logger') -> Path:
     """
@@ -21,7 +24,7 @@ def save_file(data: pd.DataFrame, file_type: str, file_path: Path,
         ValueError: If an unsupported file type is provided.
     """
     logger = logging.getLogger(logger_name)
-    if file_type not in {"csv", "parquet", "pickle", "feather"}:
+    if file_type not in SUPPORTED_FILE_TYPES:
         raise ValueError(f"Unsupported file type: {file_type}")
     # Get the directory containing the input file
     current_dir = file_path.parent

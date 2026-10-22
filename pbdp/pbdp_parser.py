@@ -12,7 +12,7 @@ import logging
 import numpy as np
 import pandas as pd
 from .states import add_state_label
-from .save import save_file
+from .save import SUPPORTED_FILE_TYPES, save_file
 from .plots import display_data, plot_current_voltage_diff
 from typing import Union
 from typing import List
@@ -821,6 +821,9 @@ class Parser:
             print_option (str, optional): Option for printing data and plots.
                                             Defaults to "".
         """
+        if (save_option in {"save", "save all"}
+                and file_type not in SUPPORTED_FILE_TYPES):
+            raise ValueError(f"Unsupported file type: {file_type}")
         self.logger.info("Importing data")
         for file in self.look_for_files(path_or_file):
             # Process each file
