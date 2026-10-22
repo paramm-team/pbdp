@@ -36,6 +36,7 @@
 - Add expected-value regressions and synthetic vendor-header integration fixtures.
 - Restore CI with pinned action revisions, Python 3.8–3.12 Linux jobs and Python
   3.11 Windows/macOS jobs; run lint, documentation and package checks separately.
+- Replace deprecated in-place header renaming for pandas 3.1 compatibility.
 - Declare Python >=3.8 and pandas >=2.0 requirements; clarify installation,
   validation limits, source provenance and output behaviour.
 

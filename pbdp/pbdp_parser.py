@@ -528,7 +528,7 @@ class Parser:
         mapped_headers = [new_headers.get(col, col) for col in data.columns]
         if len(mapped_headers) != len(set(mapped_headers)):
             raise ValueError("Duplicate standardized column headers; select one source")
-        data.rename(columns=new_headers, inplace=True)
+        data = data.rename(columns=new_headers)
 
         # Convert columns with new headers to numeric data types
         for col in data.columns:
