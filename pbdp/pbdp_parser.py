@@ -560,7 +560,10 @@ class Parser:
                 )
             if numeric_factor is not None:
                 seconds *= numeric_factor
-            remaining = np.flatnonzero(seconds.isna().to_numpy())
+            # Keep missing values for validation; older pandas cannot parse pd.NA.
+            remaining = np.flatnonzero(
+                (seconds.isna() & values.notna()).to_numpy()
+            )
             if remaining.size:
                 durations = pd.to_timedelta(values.iloc[remaining], errors="coerce")
                 seconds.iloc[remaining] = durations.dt.total_seconds().to_numpy()
