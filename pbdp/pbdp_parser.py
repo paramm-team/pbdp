@@ -1,5 +1,7 @@
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
+from io import BytesIO, StringIO
+from tempfile import NamedTemporaryFile
 
 import chardet
 import openpyxl
@@ -7,12 +9,14 @@ import csv
 from pathlib import Path
 import logging
 
+import numpy as np
 import pandas as pd
 from .states import add_state_label
-from .save import save_file
+from .save import SUPPORTED_FILE_TYPES, save_file
 from .plots import display_data, plot_current_voltage_diff
 from typing import Union
 from typing import List
+from typing import Optional
 
 
 class Parser:
@@ -88,8 +92,10 @@ class Parser:
         # Define the standard units
         self.standard_units = (
             {
-                "<I>/mA": 1e3,
-                "(Q-Qo)/mA.h": 1e3,
+                "<I>/mA": 1e-3,
+                "I/mA": 1e-3,
+                "(Q-Qo)/mA.h": 1e-3,
+                "Charge (C)": 1 / 3600,
             }
             if bool(standard_units) is False
             else standard_units
@@ -118,7 +124,7 @@ class Parser:
                     "Potential (V)",
                     "Ewe-Ece/V",
                     "Ecell/V",
-                    " Ecell/V"
+                    " Ecell/V",
                     "Voltage (V)",
                     "Voltage (v)",
                     " Voltage (V)",
@@ -232,36 +238,35 @@ class Parser:
             self.logger.warning(f"Invalid path or file, {path_or_file}")
             raise ValueError(f"Invalid path or file: {path_or_file}")
 
+    def _read_file_bytes(self, file_path: Path) -> bytes:
+        """Read text exports or serialize an Excel active sheet in memory."""
+        if file_path.suffix.lower() != ".xlsx":
+            return file_path.read_bytes()
+        workbook = openpyxl.load_workbook(file_path, read_only=True)
+        try:
+            stream = StringIO(newline="")
+            writer = csv.writer(stream)
+            if workbook.active is not None:
+                writer.writerows(workbook.active.iter_rows(values_only=True))
+            return stream.getvalue().encode("utf-8")
+        finally:
+            workbook.close()
+
     def convert_xlsx_to_csv(self, file_path: Path) -> Path:
+        """Write Excel's active sheet to a unique temporary CSV.
+
+        The caller owns the returned file and must remove it after use.
+        The importer itself reads Excel in memory without temporary files.
         """
-        Convert an Excel (xlsx) file to a CSV file.
-
-        Args:
-            file_path (str): The path to the Excel file to be converted.
-
-        Returns:
-            str: The path to the converted CSV file.
-        """
-        # Load the Excel workbook
-        workbook = openpyxl.load_workbook(str(file_path.resolve()))
-        # Get the active sheet
-        sheet = workbook.active
-        self.logger.debug(f"Excel file, {file_path}, loaded")
-
-        # Define the path for the temporary CSV file
-        current_dir = file_path.parent
-        csv_file_path = current_dir / "converted_temporary.csv"
-
-        # Write Excel sheet data to the CSV file
-        with csv_file_path.open(mode='w') as csv_file:
-            writer = csv.writer(csv_file)
-            # Write each row in the Excel sheet to the CSV file
-            if sheet is not None:
-                for row in sheet.iter_rows(values_only=True):
-                    writer.writerow(row)
-
-        self.logger.debug(f"Excel file, {file_path}, converted to CSV, {csv_file_path}")
-        return csv_file_path
+        contents = self._read_file_bytes(file_path)
+        with NamedTemporaryFile(prefix="pbdp-", suffix=".csv", delete=False) as stream:
+            try:
+                stream.write(contents)
+            except BaseException:
+                stream.close()
+                Path(stream.name).unlink(missing_ok=True)
+                raise
+        return Path(stream.name)
 
     def find_words(self, file_path: Path, cycler: str = "") -> tuple:
         """
@@ -276,23 +281,11 @@ class Parser:
             tuple: A tuple containing the file pointer position of the first keyword
                    match and the equipment type, or (None, None) if no match is found.
         """
-        # Check if the file is in xlsx format and convert if necessary
-        if file_path.suffix == ".xlsx":
-            self.logger.info(f"Converting Excel file, {file_path}, to CSV")
-            file_path = self.convert_xlsx_to_csv(file_path)
-
-        # Read the contents of the file and detect the encoding
-        with file_path.open(mode="rb") as f:
-            contents = f.read()
-            encoding = chardet.detect(contents)["encoding"]
-            if encoding is None:
-                self.logger.warning(f"No encoding detected; Something is wrong with\
-                                     your input file, {file_path}")
-                raise ValueError("Something is wrong with your input file")
-            else:
-                self.logger.info(f"Encoding detected: {encoding}")
-                contents = contents.decode(encoding)
-                self.logger.info("File content read")
+        raw_contents = self._read_file_bytes(file_path)
+        encoding = chardet.detect(raw_contents)["encoding"]
+        if encoding is None:
+            raise ValueError(f"Cannot detect encoding for {file_path}")
+        contents = raw_contents.decode(encoding)
 
         if not cycler:
             # Iterate over each equipment type in the cycler_keywords dictionary
@@ -311,10 +304,11 @@ class Parser:
                 # Search for the keywords in the file contents
                 match = full_pattern.search(contents)
                 if match:
-                    with open(file_path, "rb") as f:
+                    with BytesIO(raw_contents) as f:
                         # If a match is found, set the file pointer to that location
                         # and return the position and the equipment type
-                        f.seek(match.start())
+                        line_start = contents.rfind("\n", 0, match.start()) + 1
+                        f.seek(len(contents[:line_start].encode(encoding)))
                         self.logger.info(f"Keywords found in file, {file_path}, at\
                                          position {match.start()}, pointer set")
                         return (f.tell(), encoding, equipment_type)
@@ -322,13 +316,15 @@ class Parser:
         # to that location
         elif str(cycler).isnumeric():
             cycler = int(cycler)
-            with open(file_path, "rb") as f:
+            with BytesIO(raw_contents) as f:
                 current_line = 1
                 while current_line < cycler:
                     line = f.readline()
                     if line == b'':
                         # Reached EOF before the desired line number
-                        return (-1,)  # Fix: Return -1 as a tuple
+                        raise ValueError(
+                            f"Requested header line is outside {file_path}"
+                        )
                     current_line += 1
                 # The file pointer is now at the beginning of the desired line
                 return (f.tell(), encoding, 'cannot determine')
@@ -345,10 +341,11 @@ class Parser:
             # Search for the keywords in the file contents
             match = full_pattern.search(contents)
             if match:
-                with open(file_path, "rb") as f:
+                with BytesIO(raw_contents) as f:
                     # If a match is found, set the file pointer to that location and
                     # return the position and the equipment type
-                    f.seek(match.start())
+                    line_start = contents.rfind("\n", 0, match.start()) + 1
+                    f.seek(len(contents[:line_start].encode(encoding)))
                     self.logger.info(f"Keywords found in file, {file_path}, at position\
                              {match.start()}, pointer set")
                     return (f.tell(), encoding, cycler)
@@ -356,8 +353,7 @@ class Parser:
             print("This cycler is not yet supported")
 
         # If no match is found, raise an exception
-        self.logger.warning(f"No keywords found in file, {file_path}")
-        return (None, None)
+        raise ValueError(f"No recognized data header found in {file_path}")
 
     def split_file(self, pointer: int, file_path: Path, save_option: str) -> tuple:
         """
@@ -376,39 +372,31 @@ class Parser:
         """
         name = file_path
 
-        # Check if the file is in xlsx format and convert if necessary
-        if file_path.suffix == ".xlsx":
-            self.logger.info(f"file {file_path} is in xlsx format")
-            file_path = file_path.parent / "converted_temporary.csv"
+        contents = self._read_file_bytes(file_path)
+        metadata = contents[:pointer]
+        data = contents[pointer:]
 
-        with file_path.open(mode="rb") as f:
-            contents = f.read()
-            # Split the file into two parts based on the pointer position
-            metadata = contents[:pointer]
-            data = contents[pointer:]
-
-        # Define the delimiters to check for
-        delimiters = (b',', b'\t', b';', b' ')
         self.logger.info(f"File, {file_path}, split at position {pointer}")
 
         # Convert binary data to a list of lines for processing
         lines = data.splitlines()
 
-        # Check if the first line is empty or starts with a delimiter
-        if lines and (not lines[0].strip() or lines[0].lstrip().startswith(delimiters)):
-            # Remove the first line
+        # A leading delimiter can represent an unnamed column in a real header.
+        # Only discard genuinely blank prefix lines.
+        while lines and not lines[0].strip():
             lines = lines[1:]
 
         # Construct the modified data with the modified first line
         data = b'\n'.join(lines)
-        self.logger.info("Delimiters removed from first line of data")
+        self.logger.info("Blank prefix lines removed from data")
 
         if save_option == "save all":
             self.logger.info("Save All option selected")
             # Get the current directory of the file
             current_dir = name.parent
             # Extract the file name and extension from the input file path
-            file_name, file_ext = name.stem, name.suffix
+            file_name = name.stem
+            file_ext = ".csv" if name.suffix.lower() == ".xlsx" else name.suffix
 
             # Create a subfolder if it doesn't exist
             output_dir = current_dir / "pre_processed"
@@ -431,20 +419,11 @@ class Parser:
                 f.write(data)
                 self.logger.info(f"Data saved to {data_output_path}")
 
-            if "converted_temporary.csv" in file_path.name:
-                self.logger.info(f"Deleting temporary file, {file_path}")
-                file_path.unlink()
-
-            return (metadata, data)
-
-        else:
-            if "converted_temporary.csv" in file_path.name:
-                self.logger.info(f"Deleting temporary file, {file_path}")
-                file_path.unlink()
-            return (metadata, data)
+        return (metadata, data)
 
     def read_data_to_pandas(
-        self, data: bytes, filepath: Path, encoding: str
+        self, data: bytes, filepath: Path, encoding: str,
+        dtype: Optional[dict] = None,
     ) -> pd.DataFrame:
         """
         Read data from a bytes object into a Pandas DataFrame.
@@ -453,44 +432,30 @@ class Parser:
             data (bytes): The bytes object containing the data to be read.
             filepath (str): The original file path (determine file extension).
             encoding (str): The encoding to use for reading the data.
+            dtype (dict, optional): Raw column names mapped to pandas dtypes,
+                for example {"Cell ID": str} to preserve leading zeroes.
+                Unspecified columns use pandas inference. Pandas' default
+                missing-value handling still applies.
 
         Returns:
             pd.DataFrame: A Pandas DataFrame containing the read data.
         """
 
-        # Write data to a temporary file
-        temp_file = filepath.parent / "new_file_name"
-        with temp_file.open(mode="wb") as f:
-            self.logger.info(f"Writing data to temporary file for Pandas Import,\
-                         {temp_file}")
-            f.write(data)
-
-        # Determine file extension
-        file_ext = filepath.suffix
-
-        # Read file using the appropriate Pandas function based on its extension
-        if file_ext == ".csv":
-            df = pd.read_csv(temp_file, encoding=encoding, low_memory=False)
-        elif file_ext == ".xlsx":
-            # xlsx is converted to csv before
-            df = pd.read_csv(temp_file, encoding=encoding, low_memory=False)
-        elif file_ext == ".txt":
-            df = pd.read_csv(temp_file, sep="\t", encoding=encoding, low_memory=False)
-        elif file_ext == ".mpt":
-            df = pd.read_csv(temp_file, sep="\t", encoding=encoding, low_memory=False)
-        elif file_ext == ".DTA":
-            df = pd.read_table(temp_file, sep="\t", encoding=encoding, low_memory=False)
-        else:
-            self.logger.warning(f"Invalid file format, {file_ext},\
-                                deleting temporary file")
-            temp_file.unlink()
+        file_ext = filepath.suffix.lower()
+        separators = {".csv": ",", ".xlsx": ",", ".txt": "\t",
+                      ".mpt": "\t", ".dta": "\t"}
+        if file_ext not in separators:
             raise ValueError(f"Invalid file format: {file_ext}")
-
-        # Remove the temporary file
-        self.logger.info(f"Data read, deleting temporary file, {temp_file}")
-        temp_file.unlink()
-
-        return df
+        # pandas renames repeated headers (e.g. Current -> Current.1), hiding
+        # ambiguous measurements from later standardized-name checks.
+        reader = csv.reader(StringIO(data.decode(encoding)),
+                            delimiter=separators[file_ext])
+        raw_header = next((row for row in reader if row), [])
+        named = [name.strip() for name in raw_header if name.strip()]
+        if len(named) != len(set(named)):
+            raise ValueError("Duplicate raw column headers; select one source")
+        return pd.read_csv(BytesIO(data), sep=separators[file_ext],
+                           encoding=encoding, low_memory=False, dtype=dtype)
 
     def change_units(
         self,
@@ -507,15 +472,20 @@ class Parser:
                             standard_units.
         """
 
+        data = data.rename(columns=lambda name: name.strip())
+        if not data.columns.is_unique:
+            raise ValueError("Duplicate column headers after trimming whitespace")
         for col in data.columns:
             if col in self.standard_units:
                 # Convert values in columns with standard units
-                data[col] = data[col] * self.standard_units[col]
+                data[col] = pd.to_numeric(data[col], errors="coerce") * (
+                    self.standard_units[col]
+                )
                 self.logger.info(f"Units converted to standard for {col}")
             elif col in self.standard_time:
                 if col == "Run Time (h)":
                     # Convert hours to seconds
-                    data[col] = data[col] * 3600
+                    data[col] = pd.to_numeric(data[col], errors="coerce") * 3600
                     self.logger.info("Time converted to seconds from Run Time (h)")
                 else:
                     # Convert a string representing a time duration to seconds
@@ -567,7 +537,10 @@ class Parser:
 
         self.logger.info("Headers converted to standard")
         # Rename columns using the new mapping
-        data.rename(columns=new_headers, inplace=True)
+        mapped_headers = [new_headers.get(col, col) for col in data.columns]
+        if len(mapped_headers) != len(set(mapped_headers)):
+            raise ValueError("Duplicate standardized column headers; select one source")
+        data = data.rename(columns=new_headers)
 
         # Convert columns with new headers to numeric data types
         for col in data.columns:
@@ -589,25 +562,26 @@ class Parser:
             pd.DataFrame: A new DataFrame with unwanted rows and columns removed.
         """
 
-        self.logger.info("Removing unwanted rows and columns")
-        if "Step Number" in data.columns:
-            # Drop rows from threshold index to the end of the DataFrame
-            diff_threshold = (
-                5  # You can adjust this threshold based on the data NOT IMPLEMENTED YET
-            )
-            t_index = (data["Step Number"].diff() > diff_threshold).idxmax()
-            if isinstance(t_index, int) and t_index > 0:
-                data = data.iloc[:t_index]
-
-        # Get the column(s) with unnamed header and drop them
-        unnamed_cols = data.columns[data.columns.str.contains("^Unnamed:")]
-        data = data.drop(columns=unnamed_cols)
-
-        # Drop unwanted NAs created by pre-processing
-        data = data.dropna()
-        data = data.reset_index(drop=True)
-        self.logger.info("Unwanted rows and columns removed")
-        return data
+        # Step numbers can legitimately jump, and optional sensors can be absent.
+        # Neither condition justifies deleting otherwise valid measurements.
+        unnamed = data.columns.str.contains("^Unnamed:")
+        data = data.loc[:, ~unnamed].dropna(how="all")
+        required = ["Time [s]", "Current [A]", "Voltage [V]",
+                    "Working electrode potential [V]",
+                    "Counter electrode potential [V]"]
+        if "freq [Hz]" in data.columns:
+            required = ["freq [Hz]", "ReZ [Ohm]", "ImZ [Ohm]"]
+        available = [col for col in required if col in data.columns]
+        if available and not data.empty:
+            measured = data[available].notna().any(axis=1).to_numpy()
+            first = np.flatnonzero(measured)
+            # Leading units rows become missing numeric measurements. Interior
+            # invalid measurements remain so sanity_check can reject them.
+            count = int(first[0]) if first.size else len(data)
+            if count:
+                self.logger.warning("Removed %s leading non-measurement rows", count)
+                data = data.iloc[count:]
+        return data.reset_index(drop=True)
 
     def find_start_time(self, metadata: str) -> str:
         """
@@ -737,8 +711,9 @@ class Parser:
                               in metadata.")
 
         # Calculate and add 'Absolute Time [s]' to the DataFrame.
-        data["Absolute Time [s]"] = data["Time [s]"].cumsum().apply(
-            lambda x: start_time + timedelta(seconds=x))
+        data["Absolute Time [s]"] = start_time + pd.to_timedelta(
+            data["Time [s]"], unit="s"
+        )
         self.logger.info("Absolute time added to the data frame")
 
         return data
@@ -766,6 +741,8 @@ class Parser:
                         experiment type. or if the three electrode data doesn't make
                         sense working - counter = voltage
         """
+        if data.empty:
+            raise ValueError("Cannot process an empty measurement table")
         check_normal = ["Current [A]", "Time [s]"]
         check_either_normal = [("Voltage [V]", "Working electrode potential [V]",
                                 "Counter electrode potential [V]")]
@@ -803,13 +780,21 @@ class Parser:
                 raise ValueError(f"Your data is missing the following columns for\
                                  normal experiments: {missing_cols}")
 
-        # Check that the thre electrode voltage data makes sense
+        required = check_freq if is_freq_experiment else check_normal
+        if not is_freq_experiment:
+            required = required + [col for col in check_either_normal[0]
+                                   if col in data.columns]
+        numeric = data[required].apply(pd.to_numeric, errors="coerce")
+        if not np.isfinite(numeric.to_numpy(dtype=float)).all():
+            raise ValueError("Required measurement columns must contain finite numbers")
+
+        # Check that the three electrode voltage data makes sense
         three_el = ["Working electrode potential [V]",
                     "Counter electrode potential [V]",
                     "Voltage [V]"]
         if all(elem in data.columns for elem in three_el):
-            check = (data["Working electrode potential [V]"].abs() -
-                     data["Counter electrode potential [V]"].abs()).abs()
+            check = (data["Working electrode potential [V]"] -
+                     data["Counter electrode potential [V]"])
             if not (check - data["Voltage [V]"]).abs().lt(0.02).all():
                 self.logger.warning("Voltage data in three electrode experiment is\
                                     corrupted")
@@ -826,6 +811,7 @@ class Parser:
         save_option: str = "save",
         state_option: str = "",
         print_option: str = "",
+        dtype: Optional[dict] = None,
     ) -> pd.DataFrame:
         """
         Import, process, and optionally save and/or print battery data.
@@ -841,7 +827,16 @@ class Parser:
                                             Defaults to "".
             print_option (str, optional): Option for printing data and plots.
                                             Defaults to "".
+            dtype (dict, optional): Raw column names mapped to pandas dtypes
+                before headers and units are normalized. Use {"Cell ID": str}
+                to preserve text identifiers. Standardized measurement columns
+                still become numeric and required measurements are validated.
+                Unspecified columns use pandas inference; default missing-value
+                handling is unchanged.
         """
+        if (save_option in {"save", "save all"}
+                and file_type not in SUPPORTED_FILE_TYPES):
+            raise ValueError(f"Unsupported file type: {file_type}")
         self.logger.info("Importing data")
         for file in self.look_for_files(path_or_file):
             # Process each file
@@ -850,24 +845,21 @@ class Parser:
             self.logger.info(f"Pointer and encoding found for file, {file}")
             metadata, data = self.split_file(pointer, file, save_option)
             self.logger.info(f"File, {file}, split into metadata and data")
-            data = self.read_data_to_pandas(data, file, encoding)
+            data = self.read_data_to_pandas(data, file, encoding, dtype=dtype)
             data = self.change_units(data)
             data = self.change_headers(data)
             data = self.remove_unwanted(data)
-            try:
-                data = self.absolute_time(metadata, data, encoding)
-                self.sanity_check(data)
-            except Exception as e:
-                self.logger.warning(f"An error occurred: {e} when processing {file}")
+            # Missing start metadata is recoverable; invalid measurements are not.
+            self.sanity_check(data)
+            if "Time [s]" in data.columns:
+                try:
+                    data = self.absolute_time(metadata, data, encoding)
+                except ValueError as e:
+                    self.logger.warning("Absolute time unavailable for %s: %s", file, e)
             self.logger.info(f"Data imported from file, {file}")
             if state_option == "yes":
-                try:
-                    data = add_state_label(data)
-                    self.logger.info(f"State labels added to file, {file}")
-                except Exception as e:
-                    self.logger.warning(
-                        f"An error occurred: {e} when processing {file}"
-                    )
+                data = add_state_label(data)
+                self.logger.info(f"State labels added to file, {file}")
             # Save the file if the option is set to 'save all' or 'save'
             if save_option in ["save all", "save"]:
                 save_file(data, file_type, file)

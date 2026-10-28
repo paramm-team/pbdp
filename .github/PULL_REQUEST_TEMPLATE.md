@@ -1,25 +1,20 @@
-# Description
+## Problem and resulting behaviour
 
-Please include a summary of the change and which issue is fixed. Please also include relevant motivation and context. List any dependencies that are required for this change.
+Describe the concrete problem, the fix and any change callers must account for.
 
 Fixes # (issue)
 
-## Type of change
+## Validation
 
-Please add a line in the relevant section of [CHANGELOG.md](https://github.com/paramm-team/pybamm-param/blob/main/CHANGELOG.md) to document the change (include PR #) - note reverse order of PR #s. If necessary, also add to the list of breaking changes.
+List the checks actually run and their results, including new regression cases.
+Do not claim complete coverage unless it has been measured.
 
-- [ ] New feature (non-breaking change which adds functionality)
-- [ ] Optimization (back-end change that speeds up the code)
-- [ ] Bug fix (non-breaking change which fixes an issue)
+- [ ] Tests: `python -m pytest tests`
+- [ ] Lint: `python -m flake8 pbdp tests tools examples/scripts/quickstart.py`
+- [ ] Documentation: `python -m sphinx -b html docs docs/_build/html -W`
+- [ ] Package: `python -m build`
+- [ ] Relevant changes recorded in [CHANGELOG.md](../CHANGELOG.md)
 
-## Key checklist
+## Limitations
 
-- [ ] No style issues: `$ python -m nox -s lint`
-- [ ] All tests pass: `$ python -m nox -s unit examples integration`
-- [ ] Coverage is complete `$ python -m nox -s coverage`
-- [ ] The documentation builds: `$ python -m nox -s sphinx`
-
-## Further checks
-
-- [ ] Code is commented, particularly in hard-to-understand areas
-- [ ] Tests added that prove fix is effective or that feature works
+Record remaining format, platform or scientific assumptions relevant to this change.

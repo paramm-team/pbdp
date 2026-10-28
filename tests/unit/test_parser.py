@@ -3,7 +3,6 @@
 #
 import pbdp
 from pbdp import segment
-import os
 from pathlib import Path
 import pytest
 
@@ -13,7 +12,7 @@ def data():
     parser = pbdp.Parser()
     path = Path(pbdp.__path__[0], "input", "data").absolute()
     data = parser.data_importer(path_or_file=path / "Digatron.csv",
-                                file_type="csv", save_option="save all",
+                                file_type="csv", save_option="none",
                                 state_option="yes")
     return data
 
@@ -46,8 +45,9 @@ class TestOptimisationResult():
             'Standard time should be as expected'
 
         # Check standard units
-        standard_units = {"<I>/mA": 1e3, "(Q-Qo)/mA.h": 1e3}
-        parser.standard_units == standard_units, 'Standard units should be as expected'
+        standard_units = {"<I>/mA": 1e-3, "I/mA": 1e-3,
+                          "(Q-Qo)/mA.h": 1e-3, "Charge (C)": 1 / 3600}
+        assert parser.standard_units == standard_units
 
         # Check standard headers
         standard_headers = {
@@ -71,7 +71,7 @@ class TestOptimisationResult():
                 "Potential (V)",
                 "Ewe-Ece/V",
                 "Ecell/V",
-                " Ecell/V"
+                " Ecell/V",
                 "Voltage (V)",
                 "Voltage (v)",
                 " Voltage (V)",
@@ -164,35 +164,28 @@ class TestOptimisationResult():
         assert parser.standard_headers == standard_headers, \
             'Standard headers should be as expected'
 
-    def test_look_for_files(self):
+    def test_look_for_files(self, tmp_path):
         """Test the look_for_files method"""
         parser = pbdp.Parser()
 
-        path = Path(
-            pbdp.__path__[0],
-            "input",
-            "data",
-        )
+        path = tmp_path
+        (path / "Maccor.csv").write_text("header\nvalue\n", encoding="utf-8")
+        (path / "empty.txt").touch()
 
         # Check single file
         files = parser.look_for_files(path / "Maccor.csv")
         assert files == [path / "Maccor.csv"], 'Files should be as expected'
 
         # Check empty file
-        try:
+        with pytest.raises(ValueError, match="Empty file"):
             parser.look_for_files(path / "empty.txt")
-        except ValueError as e:
-            assert "Empty file" in str(e), 'Empty File should be in Error'
 
         # Check empty directory
-        os.makedirs(path / "empty")
-
-        try:
+        (path / "empty").mkdir()
+        with pytest.raises(ValueError, match="No files"):
             parser.look_for_files(path / "empty")
-        except ValueError as e:
-            assert "No files" in str(e), 'No Files should be in Error'
-
-        os.removedirs(path / "empty")
+        with pytest.raises(ValueError, match="Invalid path"):
+            parser.look_for_files(path / "missing.csv")
 
     def test_data_importer(self, data):
         assert data is not None
@@ -227,10 +220,6 @@ class TestOptimisationResult():
         pulse = segment.segment_data(data, requests=["pulse -10A"])
         segment.find_rest(data=data, segments=pulse)
 
-    def test_convert_xlsx_to_csv(self):
-        """Test the convert_xlsx_to_csv method"""
-        pass
-
     def test_find_words(self):
         """Test the find_words method"""
         parser = pbdp.Parser()
@@ -248,29 +237,20 @@ class TestOptimisationResult():
         assert encoding == "ascii", 'Encoding should be ascii'
         # assert cycler == #TODO: what should this be?
 
-    def test_split_file(self):
+    def test_split_file(self, tmp_path):
         """Test the split_file method"""
-        path = Path(
-            pbdp.__path__[0],
-            "input",
-            "data",
-        )
+        path = tmp_path
+        (path / "test1.csv").write_bytes(b"abcd")
 
         parser = pbdp.Parser()
 
-        # The TODOs are because they fail if you have run examples before
-
-        # Check pre_processed folder does not exist
-        # TODO: why is this here?
-        # assertFalse((path / "pre_processed").exists())
+        assert not (path / "pre_processed").exists()
 
         # Check split file works with save first
         output = parser.split_file(2, path / "test1.csv", "save first")
         assert output == (b"ab", b"cd"), 'Output should be (b"ab", b"cd")'
 
-        # TODO: why is this here?
-        # Check split file does not save to pre_processed folder
-        # assertFalse((path / "pre_processed").exists())
+        assert not (path / "pre_processed").exists()
 
         # Check split file works with save all
         output = parser.split_file(2, path / "test1.csv", "save all")
@@ -281,22 +261,3 @@ class TestOptimisationResult():
             'File should exist'
         assert (path / "pre_processed" / "test1_metadata.txt").exists(), \
             'File should exist'
-
-        # Clean up
-        (path / "pre_processed" / "test1_data.csv").unlink()
-        (path / "pre_processed" / "test1_metadata.txt").unlink()
-        # TODO: this is also problematic
-        # (path / "pre_processed").rmdir()
-
-    def test_read_data_to_pandas(self):
-        """Test the read_data_to_pandas method"""
-        pass
-
-    def test_change_units(self):
-        pass
-
-    def test_change_headers(self):
-        pass
-
-    def test_remove_unwanted(self):
-        pass

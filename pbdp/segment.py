@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 from .states import find_cc_and_cv
 import logging
@@ -63,7 +64,7 @@ def find_periods(
     # Identify the start and end of first input periods
     if first in ["rest", "charging", "discharging"]:
         logger.info(f"First input1: {first}")
-        if curr is None:
+        if curr is None or first == "rest":
             first_mask = data["Battery State"] == first
         else:
             first_mask = (data["Battery State"] == first) & (
@@ -106,12 +107,13 @@ def find_periods(
         return "None provided"
     logger.info(f"First mask: {first_mask}")
 
-    start_indices_first = data.index[
-        (first_mask) & (~first_mask.shift(1, fill_value=False))
-    ]
-    end_indices_first = data.index[
-        (first_mask) & (~first_mask.shift(-1, fill_value=False))
-    ]
+    # Adjacency is defined by row position, never by index arithmetic.
+    start_indices_first = np.flatnonzero(
+        (first_mask & ~first_mask.shift(1, fill_value=False)).fillna(False)
+    )
+    end_indices_first = np.flatnonzero(
+        (first_mask & ~first_mask.shift(-1, fill_value=False)).fillna(False)
+    )
     logger.info(f"Start indices: {start_indices_first}")
     logger.info(f"End indices: {end_indices_first}")
 
@@ -119,13 +121,14 @@ def find_periods(
         pulse_indices = [
             (start, end)
             for start, end in zip(start_indices_first, end_indices_first)
-            if data.loc[end, "Time [s]"] - data.loc[start, "Time [s]"] < 360
+            if data["Time [s]"].iloc[end] - data["Time [s]"].iloc[start] < 360
         ]
         # Combine adjusted start and end indices to get the ranges of pulses
         pulse_periods = []
         for pulse_start, pulse_end in pulse_indices:
-            if data["CCCV"].iloc[pulse_end + pulse_t] != "CV":
-                pulse_periods.append(data.loc[pulse_start:pulse_end])
+            following = data["CCCV"].iloc[pulse_end + 1:pulse_end + pulse_t + 1]
+            if not following.eq("CV").any():
+                pulse_periods.append(data.iloc[pulse_start:pulse_end + 1])
         return pulse_periods
 
     first_indices = list(zip(start_indices_first, end_indices_first))
@@ -142,7 +145,7 @@ def find_periods(
             )
     if second in ["rest", "charging", "discharging"]:
         logger.info(f"Second input1: {second}")
-        if volt is None:
+        if volt is None or second == "rest":
             second_mask = data["Battery State"] == second
         else:
             second_mask = (data["Battery State"] == second) & (
@@ -166,12 +169,12 @@ def find_periods(
                     data["Voltage [V]"].round(2) == volt
                 )
     # Identify the start and end of second input periods
-    start_indices_second = data.index[
-        (second_mask) & (~second_mask.shift(1, fill_value=False))
-    ]
-    end_indices_second = data.index[
-        (second_mask) & (~second_mask.shift(-1, fill_value=False))
-    ]
+    start_indices_second = np.flatnonzero(
+        (second_mask & ~second_mask.shift(1, fill_value=False)).fillna(False)
+    )
+    end_indices_second = np.flatnonzero(
+        (second_mask & ~second_mask.shift(-1, fill_value=False)).fillna(False)
+    )
 
     second_indices = list(zip(start_indices_second, end_indices_second))
     logger.info(f"Second indices: {second_indices}")
@@ -181,7 +184,7 @@ def find_periods(
     for first_start, first_end in first_indices:
         for second_start, second_end in second_indices:
             if first_end == second_start - 1:
-                periods.append(data.loc[first_start:second_end])
+                periods.append(data.iloc[first_start:second_end + 1])
 
     logger.info(f"Periods: {periods}")
     return periods
@@ -199,8 +202,22 @@ def segment_data(data: pd.DataFrame, requests: list, reset: bool = False,
 
     Returns:
         list: A list of filtered DataFrames representing the segmented data.
+
+    Notes:
+        Power requests select contiguous non-rest intervals lasting at least
+        10 seconds, with consecutive power changes no greater than 0.01 W.
+        An optional signed wattage filters power rounded to two decimal places.
+        Combined requests accept two unqualified states, or a rest period
+        followed by one state with a single current/voltage constraint. Use
+        ``cccv`` for constrained CC/CV pairs.
     """
     logger = logging.getLogger(logger_name)
+    normalized_requests = []
+    for request in requests:
+        if not isinstance(request, str) or not request.strip():
+            raise ValueError("Each segment request must be a non-empty string")
+        normalized_requests.append(" ".join(request.split()))
+    requests = normalized_requests
     # Check if request can be performed
     required_cols = ["Current [A]", "Voltage [V]", "Time [s]"]
     missing_cols = [col for col in required_cols if col not in data.columns]
@@ -228,34 +245,49 @@ def segment_data(data: pd.DataFrame, requests: list, reset: bool = False,
         # Handle combined requests
         if "," in sub_request:
             curr = volt = None
-            first_request, second_request = sub_request.split(", ")
-            second_request = second_request.split(" ")[0]
-            if "A" in sub_request:
-                curr = float(sub_request.split("A")[0].split(" ")[2])
-            if "V" in sub_request:
-                if "A" in sub_request:
-                    volt = float(sub_request.split("V")[0].split(" ")[3])
+            parts = [part.strip().split() for part in sub_request.split(",")]
+            states = {"rest", "charging", "discharging", "cc", "cv"}
+            error = (f"Unsupported combined request: {sub_request!r}. Use two "
+                     "states, or 'rest, cc 1A' / 'rest, cv 4.2V'; use cccv "
+                     "for constrained CC/CV pairs.")
+            if (len(parts) != 2 or len(parts[0]) != 1
+                    or not 1 <= len(parts[1]) <= 2
+                    or parts[0][0] not in states or parts[1][0] not in states):
+                raise ValueError(error)
+            first_request, second_request = parts[0][0], parts[1][0]
+            if len(parts[1]) == 2:
+                units = {"cc": "A", "cv": "V",
+                         "charging": "A", "discharging": "A"}
+                parameter = parts[1][1]
+                if (first_request != "rest" or second_request not in units
+                        or not parameter.endswith(units[second_request])):
+                    raise ValueError(error)
+                try:
+                    value = float(parameter[:-1])
+                except ValueError as exc:
+                    raise ValueError(error) from exc
+                if not np.isfinite(value):
+                    raise ValueError(error)
+                if second_request == "cc":
+                    curr = value
                 else:
-                    volt = float(sub_request.split("V")[0].split(" ")[2])
-            if "amp" in sub_request:
-                if "A" in sub_request:
-                    volt = float(sub_request.split("amp")[0].split(" ")[3])
-                else:
-                    volt = float(sub_request.split("amp")[0].split(" ")[2])
+                    # find_periods uses volt for a second-state constraint,
+                    # including the current of charging/discharging states.
+                    volt = value
             filtered_df_list.extend(
                 find_periods(data, first_request, second_request, curr, volt)
             )
             logger.info(f"Handled Sub-request: {sub_request}")
             continue
 
-        # Process each sub-request
-        elif "rest" in sub_request:
+        # Match whole request types: discharging must not match charging.
+        elif sub_request.split()[0] == "rest":
             df_list = group_by_input_state(data, "battery")
             filtered_df_list.extend(
                 [group for group in df_list if "rest" in group["Battery State"].values]
             )
             logger.info(f"Handled Sub-request: {sub_request}")
-        elif "charging" in sub_request:
+        elif sub_request.split()[0] == "charging":
             # Segment based on charging state
             df_list = group_by_input_state(data, "battery")
             if "A" in sub_request:
@@ -279,7 +311,7 @@ def segment_data(data: pd.DataFrame, requests: list, reset: bool = False,
                     ]
                 )
             logger.info(f"Handled Sub-request: {sub_request}")
-        elif "dischg" in sub_request:
+        elif sub_request.split()[0] in ["dischg", "discharging"]:
             # Segment based on discharging state
             df_list = group_by_input_state(data, "battery")
             if "A" in sub_request:
@@ -303,7 +335,7 @@ def segment_data(data: pd.DataFrame, requests: list, reset: bool = False,
                     ]
                 )
             logger.info(f"Handled Sub-request: {sub_request}")
-        elif "cc" in sub_request:
+        elif sub_request.split()[0] == "cc":
             # Segment based on constant current state
             df_list = group_by_input_state(data, "CCCV")
             if "A" in sub_request:
@@ -323,7 +355,7 @@ def segment_data(data: pd.DataFrame, requests: list, reset: bool = False,
                     [group for group in df_list if "CC" in group["CCCV"].values]
                 )
             logger.info(f"Handled Sub-request: {sub_request}")
-        elif "cv" in sub_request:
+        elif sub_request.split()[0] == "cv":
             # Segment based on constant voltage state
             df_list = group_by_input_state(data, "CCCV")
             if "V" in sub_request:
@@ -342,7 +374,7 @@ def segment_data(data: pd.DataFrame, requests: list, reset: bool = False,
                     [group for group in df_list if "CV" in group["CCCV"].values]
                 )
             logger.info(f"Handled Sub-request: {sub_request}")
-        elif "cccv" in sub_request:
+        elif sub_request.split()[0] == "cccv":
             # Segment based on cc values
             cccv_A = cccv_V = None
             if "A" in sub_request:
@@ -355,7 +387,7 @@ def segment_data(data: pd.DataFrame, requests: list, reset: bool = False,
                     cccv_V = float(sub_request.split("V")[0].split(" ")[1])
             filtered_df_list.extend(find_periods(data, "cccv", None, cccv_A, cccv_V))
             logger.info(f"Handled Sub-request: {sub_request}")
-        elif "pulse" in sub_request:
+        elif sub_request.split()[0] == "pulse":
             # Segment based on pulse values
             if "A" in sub_request:
                 pulse_A = float(sub_request.split("A")[0].split(" ")[1])
@@ -365,7 +397,7 @@ def segment_data(data: pd.DataFrame, requests: list, reset: bool = False,
                 filtered_df_list.extend(find_periods(data, "pulse"))
             logger.info(f"Handled Sub-request: {sub_request}")
         # Segment based on step number
-        elif "step" in sub_request:
+        elif sub_request.split()[0] == "step":
             if ":" in sub_request:
                 start_step, end_step = map(
                     float, sub_request.split("step")[1].split(':')
@@ -387,7 +419,7 @@ def segment_data(data: pd.DataFrame, requests: list, reset: bool = False,
                 filtered_df_list.append(data)
             logger.info(f"Handled Sub-request: {sub_request}")
         # Segment based on time
-        elif "time" in sub_request:
+        elif sub_request.split()[0] == "time":
             if "/" in sub_request:
                 start_time, stop_time = map(
                     float, sub_request.split("time")[1].split('/')
@@ -412,30 +444,43 @@ def segment_data(data: pd.DataFrame, requests: list, reset: bool = False,
                         data[data["Time [s]"].between(start_time, stop_time)]
                     )
             else:
-                filtered_df_list.extend(data)
-            logger.info(f"Handled Sub-request: {sub_request}")
-        elif "power" in sub_request:
-            # Segment based on power
-            data["Power [W]"] = data["Voltage [V]"] * data["Current [A]"]
-            #df_list = group_by_input_state(data, "Power")
-            df_list = data[~data["Current [A]"].abs().lt(0.001)].groupby(
-                data["Power [W]"].diff().abs().gt(0.01).cumsum()
-            )
-            if "W" in sub_request:
-                # Segment based on charging current
-                pwr_W = float(sub_request.split("W")[0].split(" ")[1])
-                for _, group in df_list:
-                    filtered_group = group[group["Power [W]"].round(2) == pwr_W]
-                    if not filtered_group.empty :
-                        if not (
-                            filtered_group["Time [s]"].iloc[-1] -
-                            filtered_group["Time [s]"].iloc[0] >= 10
-                        ):
-                            filtered_df_list.append(filtered_group)
-            else:
-                # Segment all power periods
                 filtered_df_list.append(data)
             logger.info(f"Handled Sub-request: {sub_request}")
+        elif sub_request.split()[0] == "power":
+            parts = sub_request.split()
+            target = None
+            error = f"Invalid power request: {sub_request!r}; use power or power 4W"
+            if len(parts) != 1:
+                if len(parts) != 2 or not parts[1].endswith("W"):
+                    raise ValueError(error)
+                try:
+                    target = float(parts[1][:-1])
+                except ValueError as exc:
+                    raise ValueError(error) from exc
+                if not np.isfinite(target):
+                    raise ValueError(error)
+            power = data["Voltage [V]"] * data["Current [A]"]
+            power_data = data.assign(**{"Power [W]": power})
+            active = data["Current [A]"].abs().ge(0.001) & np.isfinite(power)
+            if target is not None:
+                active &= power.round(2).eq(target)
+            # Rest rows and excluded values break runs even when neighboring
+            # accepted values happen to have the same power. Group positionally
+            # so repeated source index labels remain valid.
+            groups = (power.diff().abs().gt(0.01)
+                      | active.ne(active.shift(fill_value=False))).cumsum()
+            selected = np.flatnonzero(active.to_numpy())
+            intervals = power_data.iloc[selected].groupby(
+                groups.to_numpy()[selected], sort=False
+            )
+            for _, group in intervals:
+                duration = group["Time [s]"].iloc[-1] - group["Time [s]"].iloc[0]
+                if duration >= 10:
+                    filtered_df_list.append(group)
+            logger.info(f"Handled Sub-request: {sub_request}")
+
+        else:
+            raise ValueError(f"Unknown segment request: {sub_request!r}")
 
     if reset is True:
         logger.info("Resetting time")
@@ -467,7 +512,7 @@ def reset_time(data: list, logger_name: str = 'pbdp_logger') -> pd.DataFrame:
         return df.assign(
             **{
                 "Original Time [s]": df["Time [s]"],
-                "Time [s]": df["Time [s]"] - df["Time [s]"].iloc[0]
+                "Time [s]": df["Time [s]"] - (0 if df.empty else df["Time [s]"].iloc[0])
             }
         )
     data = list(map(map_fun, data))
@@ -500,34 +545,23 @@ def find_rest(data: pd.DataFrame,
     """
     logger = logging.getLogger(logger_name)
 
+    if not data.index.is_unique:
+        raise ValueError("find_rest requires unique source index labels")
+    rest = data["Current [A]"].abs().lt(current_epsilon).to_numpy()
+
     def process_segment(segment: pd.DataFrame):
-        # Get the start and end indices of the segment and create a rest mask
-        rest_mask = data["Current [A]"].abs().lt(current_epsilon)
-        segment_start = segment.index.min()
-        segment_end = segment.index.max()
-
-        # Find indices where rest periods start and end
-        rest_change = rest_mask.ne(rest_mask.shift())
-        rest_starts = rest_change.index[rest_change & rest_mask]
-        rest_ends = rest_change.index[rest_change & ~rest_mask]
-        logger.info(f"Rest segments found at: {rest_starts}, {rest_ends}")
-
-        # Find the last rest period start before the segment and the first after
-        last_rest_start_before_segment = rest_starts[rest_starts < segment_start].max()
-        first_rest_end_after_segment = rest_ends[rest_ends > segment_end].min()
-        logger.info(
-            f"Last rest start before segment: {last_rest_start_before_segment}\
-                First rest end after segment: {first_rest_end_after_segment}"
-        )
-
-        # Adjust start and end indices to include the rest periods
-        if pd.notna(last_rest_start_before_segment):
-            segment_start = last_rest_start_before_segment
-        if pd.notna(first_rest_end_after_segment):
-            segment_end = first_rest_end_after_segment - 1
-
-        # Return the updated segment including the adjacent rest periods
-        return data.loc[segment_start:segment_end]
+        if segment.empty:
+            return segment.copy()
+        positions = data.index.get_indexer(segment.index)
+        if (positions < 0).any() or (np.diff(positions) != 1).any():
+            raise ValueError("Each segment must be consecutive rows of the source")
+        start, end = positions[0], positions[-1]
+        # Extend through adjacent rest rows only; never cross another activity.
+        while start > 0 and rest[start - 1]:
+            start -= 1
+        while end + 1 < len(data) and rest[end + 1]:
+            end += 1
+        return data.iloc[start:end + 1]
 
     # Process each segment in the list
     updated_segments = [process_segment(segment) for segment in segments]
