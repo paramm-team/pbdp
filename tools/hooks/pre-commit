@@ -1,0 +1,3 @@
+#!/bin/sh
+# Select a virtual-environment interpreter with PBDP_PYTHON if needed.
+exec "${PBDP_PYTHON:-python3}" tools/strip_notebooks.py --staged

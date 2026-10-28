@@ -16,6 +16,7 @@ from .save import SUPPORTED_FILE_TYPES, save_file
 from .plots import display_data, plot_current_voltage_diff
 from typing import Union
 from typing import List
+from typing import Optional
 
 
 class Parser:
@@ -421,7 +422,8 @@ class Parser:
         return (metadata, data)
 
     def read_data_to_pandas(
-        self, data: bytes, filepath: Path, encoding: str
+        self, data: bytes, filepath: Path, encoding: str,
+        dtype: Optional[dict] = None,
     ) -> pd.DataFrame:
         """
         Read data from a bytes object into a Pandas DataFrame.
@@ -430,6 +432,10 @@ class Parser:
             data (bytes): The bytes object containing the data to be read.
             filepath (str): The original file path (determine file extension).
             encoding (str): The encoding to use for reading the data.
+            dtype (dict, optional): Raw column names mapped to pandas dtypes,
+                for example {"Cell ID": str} to preserve leading zeroes.
+                Unspecified columns use pandas inference. Pandas' default
+                missing-value handling still applies.
 
         Returns:
             pd.DataFrame: A Pandas DataFrame containing the read data.
@@ -449,7 +455,7 @@ class Parser:
         if len(named) != len(set(named)):
             raise ValueError("Duplicate raw column headers; select one source")
         return pd.read_csv(BytesIO(data), sep=separators[file_ext],
-                           encoding=encoding, low_memory=False)
+                           encoding=encoding, low_memory=False, dtype=dtype)
 
     def change_units(
         self,
@@ -805,6 +811,7 @@ class Parser:
         save_option: str = "save",
         state_option: str = "",
         print_option: str = "",
+        dtype: Optional[dict] = None,
     ) -> pd.DataFrame:
         """
         Import, process, and optionally save and/or print battery data.
@@ -820,6 +827,12 @@ class Parser:
                                             Defaults to "".
             print_option (str, optional): Option for printing data and plots.
                                             Defaults to "".
+            dtype (dict, optional): Raw column names mapped to pandas dtypes
+                before headers and units are normalized. Use {"Cell ID": str}
+                to preserve text identifiers. Standardized measurement columns
+                still become numeric and required measurements are validated.
+                Unspecified columns use pandas inference; default missing-value
+                handling is unchanged.
         """
         if (save_option in {"save", "save all"}
                 and file_type not in SUPPORTED_FILE_TYPES):
@@ -832,7 +845,7 @@ class Parser:
             self.logger.info(f"Pointer and encoding found for file, {file}")
             metadata, data = self.split_file(pointer, file, save_option)
             self.logger.info(f"File, {file}, split into metadata and data")
-            data = self.read_data_to_pandas(data, file, encoding)
+            data = self.read_data_to_pandas(data, file, encoding, dtype=dtype)
             data = self.change_units(data)
             data = self.change_headers(data)
             data = self.remove_unwanted(data)

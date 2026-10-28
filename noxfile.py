@@ -5,7 +5,8 @@ import nox
 def lint(session):
     """Run the flake8 linter."""
     session.install('flake8')
-    session.run('flake8', './pbdp/', './tests/')
+    session.run('flake8', './pbdp/', './tests/', './tools/',
+                './examples/scripts/quickstart.py')
 
 
 @nox.session
@@ -15,9 +16,9 @@ def sphinx(session):
     session.run('sphinx-build', '-b', 'html', 'docs', 'docs/_build/html', '-W')
 
 
-@nox.session(python=['3.8', '3.9', '3.10', '3.11'])
+@nox.session(python=['3.8', '3.9', '3.10', '3.11', '3.12'])
 def integration(session):
-    """Run the intergration test suite."""
+    """Run the integration test suite."""
     session.install('-e', './[dev]')
 
     # Get the files to test
@@ -29,7 +30,7 @@ def integration(session):
     session.run("pytest", *test_files)
 
 
-@nox.session(python=['3.8', '3.9', '3.10', '3.11'])
+@nox.session(python=['3.8', '3.9', '3.10', '3.11', '3.12'])
 def unit(session):
     """Run the unit test suite."""
     session.install('-e', './[dev]')
@@ -52,27 +53,3 @@ def coverage(session):
                 "pytest", "./tests/")
     session.run("coverage", "report", "-m")
     session.run("coverage", "xml")
-
-
-# Directly from https://nox.thea.codes/en/stable/cookbook.html
-
-# @nox.session()
-# def release(session) -> None:
-#     """
-#     Kicks off an automated release process by creating and pushing a new tag.
-
-#     Invokes bump2version with the posarg setting the version.
-
-#     Usage:
-#     $ nox -s release
-#     """
-
-#     session.install("bump2version", "./[deploy]")
-
-#     version = pbdp.__version__
-#     session.log(f"Bumping the {version!r} version")
-#     session.run("bump2version", version)
-
-#     session.log("Pushing the new tag")
-#     session.run("git", "push", external=True)
-#     session.run("git", "push", "--tags", external=True)

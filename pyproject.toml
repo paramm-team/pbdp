@@ -7,7 +7,7 @@ build-backend = "hatchling.build"
 [project]
 name = "pbdp"
 requires-python = ">=3.8"
-description = "A package for processing experimental data for batteries. Under development."
+description = "Battery experiment import and segmentation; final maintenance release."
 readme = "README.md"
 license = "BSD-3-Clause"
 authors = [
@@ -28,6 +28,11 @@ dynamic = [
     "version",
 ]
 
+[project.urls]
+Repository = "https://github.com/paramm-team/pbdp"
+Documentation = "https://github.com/paramm-team/pbdp/blob/main/README.md"
+Changelog = "https://github.com/paramm-team/pbdp/blob/main/CHANGELOG.md"
+
 [project.optional-dependencies]
 dev = [
     "nox",
@@ -41,9 +46,6 @@ docs = [
     "sphinx>=1.5",
     "sphinx-rtd-theme",
 ]
-deploy = [
-    "bump2version"
-]
 
 [tool.hatch.version]
 path = "pbdp/version.py"
@@ -55,6 +57,10 @@ include = [
     "/docs",
     "/noxfile.py",
     "/CHANGELOG.md",
+    "/MAINTENANCE.md",
+    "/examples",
+    "/tools",
+    "/.flake8",
 ]
 
 [tool.pytest.ini_options]

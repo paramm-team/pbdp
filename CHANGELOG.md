@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — maintenance update (PR #30)
+## 0.1.1 (2026-10-28) - final maintenance release
 
 ### Data correctness and preservation
 
@@ -42,13 +42,33 @@
 - Declare Python >=3.8 and pandas >=2.0 requirements; clarify installation,
   validation limits, source provenance and output behaviour.
 
+### Final usability and release work
+
+- Add optional raw-header `dtype` mappings to the reader/importer, preserving
+  text identifiers without bypassing numeric measurement validation.
+- Repair sustained constant-power selection and reject malformed combined
+  segment requests explicitly; retain the legacy string API.
+- Make logging safe for installed packages: stderr by default, optional explicit
+  file output, and no duplicate handlers on repeated setup.
+- Add a synthetic import/classify/segment/export/reload quickstart, expected-value
+  power and plotting checks, and an audit of the historical notebooks.
+- Add a notebook cleanup tool, optional local Git hook and CI cleanliness check.
+- Remove obsolete setup.py and the broken in-package demo; use pyproject.toml
+  as the sole packaging configuration. Include examples, tools and lint settings
+  in the source distribution and exercise the installed wheel in CI.
+- Configure Read the Docs to install the package's documentation dependencies.
+- Document final-maintenance status, compatibility limits and the direction
+  toward PyProBE. A segmentation API redesign is deferred.
+
 ### Upgrade considerations
 
 Imports that previously silently dropped invalid measurements or skipped validation
 can now raise `ValueError`. Requested state-labelling failures also propagate.
 Missing start-time metadata remains recoverable and does not invent timestamps.
 Output names retain all dots in the source stem. Explicit saves can still replace
-existing outputs. Directory imports still return only the last DataFrame.
+existing outputs. Directory imports still return only the last DataFrame. `create_logger()` no
+longer writes a file by default; pass `log_file` to request file logging.
 
 This update does not certify every vendor export or replace heuristic state
-classification. It does not change the upstream project's maintenance status.
+classification. Active feature development is retired after this final planned
+maintenance release; see [MAINTENANCE.md](MAINTENANCE.md).

@@ -9,7 +9,7 @@
 project = 'PBDP'
 copyright = '2023–2026, PBDP contributors'
 author = 'PBDP contributors'
-release = '0.1'
+release = '0.1.1'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration

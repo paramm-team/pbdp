@@ -202,6 +202,14 @@ def segment_data(data: pd.DataFrame, requests: list, reset: bool = False,
 
     Returns:
         list: A list of filtered DataFrames representing the segmented data.
+
+    Notes:
+        Power requests select contiguous non-rest intervals lasting at least
+        10 seconds, with consecutive power changes no greater than 0.01 W.
+        An optional signed wattage filters power rounded to two decimal places.
+        Combined requests accept two unqualified states, or a rest period
+        followed by one state with a single current/voltage constraint. Use
+        ``cccv`` for constrained CC/CV pairs.
     """
     logger = logging.getLogger(logger_name)
     normalized_requests = []
@@ -237,20 +245,35 @@ def segment_data(data: pd.DataFrame, requests: list, reset: bool = False,
         # Handle combined requests
         if "," in sub_request:
             curr = volt = None
-            first_request, second_request = sub_request.split(", ")
-            second_request = second_request.split(" ")[0]
-            if "A" in sub_request:
-                curr = float(sub_request.split("A")[0].split(" ")[2])
-            if "V" in sub_request:
-                if "A" in sub_request:
-                    volt = float(sub_request.split("V")[0].split(" ")[3])
+            parts = [part.strip().split() for part in sub_request.split(",")]
+            states = {"rest", "charging", "discharging", "cc", "cv"}
+            error = (f"Unsupported combined request: {sub_request!r}. Use two "
+                     "states, or 'rest, cc 1A' / 'rest, cv 4.2V'; use cccv "
+                     "for constrained CC/CV pairs.")
+            if (len(parts) != 2 or len(parts[0]) != 1
+                    or not 1 <= len(parts[1]) <= 2
+                    or parts[0][0] not in states or parts[1][0] not in states):
+                raise ValueError(error)
+            first_request, second_request = parts[0][0], parts[1][0]
+            if len(parts[1]) == 2:
+                units = {"cc": "A", "cv": "V",
+                         "charging": "A", "discharging": "A"}
+                parameter = parts[1][1]
+                if (first_request != "rest" or second_request not in units
+                        or not parameter.endswith(units[second_request])):
+                    raise ValueError(error)
+                try:
+                    value = float(parameter[:-1])
+                except ValueError as exc:
+                    raise ValueError(error) from exc
+                if not np.isfinite(value):
+                    raise ValueError(error)
+                if second_request == "cc":
+                    curr = value
                 else:
-                    volt = float(sub_request.split("V")[0].split(" ")[2])
-            if "amp" in sub_request:
-                if "A" in sub_request:
-                    volt = float(sub_request.split("amp")[0].split(" ")[3])
-                else:
-                    volt = float(sub_request.split("amp")[0].split(" ")[2])
+                    # find_periods uses volt for a second-state constraint,
+                    # including the current of charging/discharging states.
+                    volt = value
             filtered_df_list.extend(
                 find_periods(data, first_request, second_request, curr, volt)
             )
@@ -424,26 +447,36 @@ def segment_data(data: pd.DataFrame, requests: list, reset: bool = False,
                 filtered_df_list.append(data)
             logger.info(f"Handled Sub-request: {sub_request}")
         elif sub_request.split()[0] == "power":
-            # Segment based on power
-            data["Power [W]"] = data["Voltage [V]"] * data["Current [A]"]
-            #df_list = group_by_input_state(data, "Power")
-            df_list = data[~data["Current [A]"].abs().lt(0.001)].groupby(
-                data["Power [W]"].diff().abs().gt(0.01).cumsum()
+            parts = sub_request.split()
+            target = None
+            error = f"Invalid power request: {sub_request!r}; use power or power 4W"
+            if len(parts) != 1:
+                if len(parts) != 2 or not parts[1].endswith("W"):
+                    raise ValueError(error)
+                try:
+                    target = float(parts[1][:-1])
+                except ValueError as exc:
+                    raise ValueError(error) from exc
+                if not np.isfinite(target):
+                    raise ValueError(error)
+            power = data["Voltage [V]"] * data["Current [A]"]
+            power_data = data.assign(**{"Power [W]": power})
+            active = data["Current [A]"].abs().ge(0.001) & np.isfinite(power)
+            if target is not None:
+                active &= power.round(2).eq(target)
+            # Rest rows and excluded values break runs even when neighboring
+            # accepted values happen to have the same power. Group positionally
+            # so repeated source index labels remain valid.
+            groups = (power.diff().abs().gt(0.01)
+                      | active.ne(active.shift(fill_value=False))).cumsum()
+            selected = np.flatnonzero(active.to_numpy())
+            intervals = power_data.iloc[selected].groupby(
+                groups.to_numpy()[selected], sort=False
             )
-            if "W" in sub_request:
-                # Segment based on charging current
-                pwr_W = float(sub_request.split("W")[0].split(" ")[1])
-                for _, group in df_list:
-                    filtered_group = group[group["Power [W]"].round(2) == pwr_W]
-                    if not filtered_group.empty :
-                        if not (
-                            filtered_group["Time [s]"].iloc[-1] -
-                            filtered_group["Time [s]"].iloc[0] >= 10
-                        ):
-                            filtered_df_list.append(filtered_group)
-            else:
-                # Segment all power periods
-                filtered_df_list.append(data)
+            for _, group in intervals:
+                duration = group["Time [s]"].iloc[-1] - group["Time [s]"].iloc[0]
+                if duration >= 10:
+                    filtered_df_list.append(group)
             logger.info(f"Handled Sub-request: {sub_request}")
 
         else:
