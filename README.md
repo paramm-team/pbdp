@@ -93,6 +93,27 @@ converted to numeric values and validated; this option cannot bypass validation.
 Pandas' missing-value handling remains in effect. Leading zeroes must exist in
 the input as text; Excel display formatting alone cannot restore them.
 
+For numeric Maccor `TestTime` values, declare the source unit explicitly.
+Check the instrument's export settings; the same header can represent different
+units:
+
+```python
+parser = Parser(time_units={"TestTime": "min"})  # only for a minutes export
+data = parser.data_importer(source, save_option="none")
+```
+
+Use `"s"` for seconds. Without a declared unit, numeric `TestTime` values
+raise an error instead of guessing. Duration strings such as `01:30:00` retain
+their own meaning; explicit headers such as `TestTime(s)` and `Run Time (h)`
+retain their declared seconds and hours. The normalized output is `Time [s]`.
+Supported unit names are `s`, `min`, `h`, `ms`, `us`, `ns` and `d`. Unit mappings
+use raw column names and cannot contradict explicit header units or configured
+`standard_units` factors.
+
+Version 0.1.1 incorrectly interpreted numeric `TestTime` values as nanoseconds.
+Reimport affected recordings from the originals with the correct source unit;
+this error also affected generated timestamps and duration-based CC/CV detection.
+
 ## What the maintenance checks cover
 
 The suite combines expected-value unit tests and small synthetic end-to-end
@@ -115,6 +136,12 @@ produces a warning and leaves relative time usable; missing or nonfinite require
 measurements raise an error before processed output is saved. When explicitly
 requested, state-labelling errors propagate rather than silently returning
 unlabelled data.
+
+State labels use the sign of current: positive means charging, negative means
+discharging. Some exports encode direction separately in a vendor mode column
+while current remains nonnegative. PBDP does not normalize current from that
+mode column; establish the instrument's sign convention before interpreting
+the resulting labels. Correct elapsed time alone does not resolve this issue.
 
 Segment requests use the existing lowercase syntax, for example `cc`, `cv 4.2V`,
 `cccv 1A 4.2V`, `rest, cc 1A`, `cv, rest`, `time 50/200` and `step 10:20`.
