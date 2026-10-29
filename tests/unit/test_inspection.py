@@ -29,15 +29,18 @@ def test_invalid_dtype_configuration_returns_an_error_report(tmp_path, dtype):
 
 def source_file(tmp_path, text, name="example.csv"):
     path = tmp_path / name
-    path.write_text(text, encoding="utf-8")
+    # Preserve the chosen fixture bytes on every operating system.
+    path.write_bytes(text.encode("utf-8"))
     return path
 
 
-def test_inspection_accounts_for_cleanup_and_keeps_source_unchanged(tmp_path):
+@pytest.mark.parametrize("newline", ["\n", "\r\n"], ids=["lf", "crlf"])
+def test_inspection_accounts_for_cleanup_and_keeps_source_unchanged(tmp_path, newline):
     source = source_file(
         tmp_path,
-        "Synthetic export\ntime/s,I/mA,Ecell/V,Cell ID\n"
-        "s,mA,V,units\n0,1000,3.7,0007\n,,,\n10,-500,3.6,0042\n",
+        ("Synthetic export\ntime/s,I/mA,Ecell/V,Cell ID\n"
+         "s,mA,V,units\n0,1000,3.7,0007\n,,,\n10,-500,3.6,0042\n")
+        .replace("\n", newline),
     )
     original = source.read_bytes()
     report = Parser().inspect_file(source, state_option="yes", dtype={"Cell ID": str})
@@ -47,7 +50,7 @@ def test_inspection_accounts_for_cleanup_and_keeps_source_unchanged(tmp_path):
     assert report["source"]["bytes"] == len(original)
     assert report["header"]["line"] == 2
     assert report["header"]["detected_vendor"] == "vmp3"
-    assert report["metadata"]["text"] == "Synthetic export\n"
+    assert report["metadata"]["text"] == "Synthetic export" + newline
     assert report["metadata"]["absolute_time_available"] is False
     assert report["rows"]["parsed"] == 4
     assert report["rows"]["retained"] == 2
@@ -290,12 +293,14 @@ def test_inspection_captures_source_and_header_failures(tmp_path, text):
     json.dumps(report, allow_nan=False)
 
 
-def test_explicit_header_reports_actual_line_after_blank_prefix(tmp_path):
-    source = source_file(tmp_path, "\n\ntime/s,I/mA,Ecell/V\n0,1000,3.7\n")
+@pytest.mark.parametrize("newline", ["\n", "\r\n"], ids=["lf", "crlf"])
+def test_explicit_header_reports_actual_line_after_blank_prefix(tmp_path, newline):
+    source = source_file(
+        tmp_path, "\n\ntime/s,I/mA,Ecell/V\n0,1000,3.7\n".replace("\n", newline))
     report = Parser().inspect_file(source, cycler="1")
     assert report["status"] == "ok", report["errors"]
     assert report["header"]["line"] == 3
-    assert report["header"]["byte_offset"] == 2
+    assert report["header"]["byte_offset"] == len((newline * 2).encode("utf-8"))
     assert report["header"]["blank_prefix_lines_skipped"] == 2
 
 
