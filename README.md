@@ -10,6 +10,9 @@ with corrected imports and reproducible checks. See
 [CHANGELOG.md](CHANGELOG.md) for fixes and upgrade considerations, and
 [MAINTENANCE.md](MAINTENANCE.md) for support limits and the direction toward
 [PyProBE](https://github.com/ImperialCollegeLondon/PyProBE) for future work.
+The source branch also contains an unreleased import-correctness follow-up;
+the inspection and configuration examples below require that source version.
+They are not included in the published v0.1.1 wheel.
 
 ## Installation
 
@@ -114,6 +117,100 @@ Version 0.1.1 incorrectly interpreted numeric `TestTime` values as nanoseconds.
 Reimport affected recordings from the originals with the correct source unit;
 this error also affected generated timestamps and duration-based CC/CV detection.
 
+### Current direction and rest threshold
+
+Positive current means charging and negative current means discharging. For an
+export that records unsigned current and a separate mode field, explicitly
+declare the instrument's convention:
+
+```python
+parser = Parser(
+    time_units={"TestTime": "min"},  # only if this export records minutes
+    current_mode_column="Md",
+    current_mode_map={"C": "charging", "D": "discharging", "R": "rest"},
+    current_epsilon=0.001,
+)
+data = parser.data_importer(source, save_option="none", state_option="yes")
+```
+
+These example mode codes are caller-provided, not a universal vendor mapping.
+Every observed mode must be mapped; unknown modes and rest modes with current
+above the configured threshold raise an error. The original imported current,
+after conversion to amperes, is preserved in `Source current [A]`. Only the sign
+of `Current [A]` changes for charging/discharging modes; capacity and energy
+conventions are unchanged. Without a mode map, imported current stays unchanged.
+
+Rest includes both threshold boundaries: `abs(current) <= current_epsilon`.
+The default is 0.001 A. The threshold follows the DataFrame through state
+labelling and segmentation in `data.attrs["pbdp_current_epsilon"]`.
+
+### Inspect an import without saving
+
+```python
+report = parser.inspect_file(source, state_option="yes")
+print(report["status"])        # "ok" or "error"
+print(report["columns"])       # column mapping, factor and conversion basis
+print(report["errors"])
+```
+
+The JSON-compatible report includes the source hash, detected header and metadata,
+raw-to-standard column mappings, unit decisions, cleanup counts, normalization
+provenance, warnings and validation errors. Offending rows use **1-based parsed
+data-record numbers**, not physical file lines; row samples are bounded and include
+total counts. Reports contain source paths and metadata, so treat them with the
+same care as the input. Inspection reads one file and creates no output files.
+An error is returned in the report; normal `data_importer` calls still raise it.
+
+Cleanup distinguishes genuinely empty records, leading units rows and a narrowly
+recognized terminal record-count footer. That footer must occupy a single cell
+and its declared count must match the preceding parsed records; other nonempty
+invalid rows are rejected. Cleanup reasons are included in the report.
+
+The same inspection is available from the terminal:
+
+```bash
+python -m pbdp inspect my_experiment.csv --states
+python -m pbdp inspect my_experiment.csv --time-unit 'TestTime=min' \
+  --mode-column Md --mode C=charging --mode D=discharging --mode R=rest --states
+```
+
+JSON goes to stdout, logs to stderr. Exit codes are 0 for a valid import, 1 for
+an import error, and 2 for invalid command options. CLI mode keys are strings;
+use the Python mapping for numeric mode codes. Inspection validates measurements
+and optionally counts battery states; it does not certify CC/CV phase labels.
+
+### Configure CC/CV classification
+
+```python
+from pbdp.states import find_cc_and_cv
+
+find_cc_and_cv(data, voltage_epsilon=0.002, time_t=10, max_gap_s=5)
+segments = segment_data(data, ["cc", "cv", "cccv", "rest"])
+
+# Explicit options recompute labels on a copy when selecting segments.
+segments = segment_data(data, ["cccv"], classification_options={
+    "current_epsilon": 0.0001, "voltage_epsilon": 0.002,
+    "time_t": 10, "max_gap_s": 5,
+})
+```
+
+The classifier checks each plateau's full maximum-minus-minimum range and elapsed
+duration, with CC taking precedence over CV. It no longer uses row-count lookbacks
+by default. Rest, direction changes and repeated timestamps split intervals;
+decreasing/nonfinite time is rejected. `max_gap_s` optionally splits recording gaps
+and must reflect the experiment's acquisition interval; no gap size is inferred.
+Segmentation preserves these boundaries, including when pairing CC/CV or adding
+rest. Explicit legacy `rest_t` or `cc_t` arguments retain their historical
+row-context gate, with defaults of 8 and 5 for the unspecified argument.
+
+Classification settings are recorded in `data.attrs["pbdp_classification"]`.
+Segmentation preserves complete existing labels unless `classification_options`
+are supplied; missing labels use the recorded settings. CSV does not preserve
+these attributes, so pass the intended options again after reloading CSV.
+Observed sampling still limits phase detection. Review the labels against the
+protocol; these rules describe measurements and do not infer the instrument's
+control mode.
+
 ## What the maintenance checks cover
 
 The suite combines expected-value unit tests and small synthetic end-to-end
@@ -127,6 +224,10 @@ imports. It checks:
 - CSV, tab-delimited TXT/MPT/DTA and Excel imports, with representative synthetic
   Digatron, Maccor, Gamry, Novonix and BioLogic headers, plus EIS measurements.
 - CSV, Parquet, Pickle and Feather export round trips.
+- Consistent header matching for conversion and renaming, retaining SI prefix
+  case (mA and MA are different units).
+- Explicit mode mappings, inclusive rest thresholds, plateau drift, irregular
+  sampling, recording gaps, and inspection reports/terminal exit codes.
 
 These fixtures cover particular export layouts, not every vendor format or
 firmware version. State classification and pulse detection remain heuristic;
@@ -137,11 +238,9 @@ measurements raise an error before processed output is saved. When explicitly
 requested, state-labelling errors propagate rather than silently returning
 unlabelled data.
 
-State labels use the sign of current: positive means charging, negative means
-discharging. Some exports encode direction separately in a vendor mode column
-while current remains nonnegative. PBDP does not normalize current from that
-mode column; establish the instrument's sign convention before interpreting
-the resulting labels. Correct elapsed time alone does not resolve this issue.
+Mixed cycling/EIS tables are rejected before cleanup can discard valid cycling
+rows that lack impedance measurements. Select separate cycling and EIS tables
+explicitly; automatic splitting of combined recordings is not provided.
 
 Segment requests use the existing lowercase syntax, for example `cc`, `cv 4.2V`,
 `cccv 1A 4.2V`, `rest, cc 1A`, `cv, rest`, `time 50/200` and `step 10:20`.

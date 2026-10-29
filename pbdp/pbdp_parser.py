@@ -12,7 +12,8 @@ import logging
 
 import numpy as np
 import pandas as pd
-from .states import add_state_label
+from .states import (add_state_label, normalize_current_direction,
+                     validate_current_configuration)
 from .save import SUPPORTED_FILE_TYPES, save_file
 from .plots import display_data, plot_current_voltage_diff
 from typing import Union
@@ -63,6 +64,9 @@ class Parser:
         standard_headers: dict = {},
         logger_name: str = "pbdp_logger",
         time_units: Optional[dict] = None,
+        current_epsilon: float = 0.001,
+        current_mode_column: Optional[str] = None,
+        current_mode_map: Optional[dict] = None,
     ):
         self.logger = logging.getLogger(logger_name)
         """
@@ -83,6 +87,11 @@ class Parser:
                 numeric units: s, min, h, ms, us, ns, or d. Required for numeric
                 values in duration-capable columns without declared header units
                 or a standard_units factor. Duration strings retain their units.
+            current_epsilon (float): Inclusive near-zero current threshold in A.
+            current_mode_column (str, optional): Source mode column used only
+                with an explicit current_mode_map to normalize current direction.
+            current_mode_map (dict, optional): Source mode values mapped to
+                charging, discharging or rest. Original current is preserved.
         """
 
         # Initialize the class variables based on provided arguments.
@@ -217,46 +226,208 @@ class Parser:
         )
 
         self.time_units = self._validate_time_units(time_units)
+        validate_current_configuration(
+            current_epsilon, current_mode_column, current_mode_map)
+        self.current_epsilon = current_epsilon
+        self.current_mode_column = current_mode_column
+        self.current_mode_map = (
+            dict(current_mode_map) if current_mode_map is not None else None)
         self.logger.info("Parser initialized")
 
+    @staticmethod
+    def _header_key(header: str) -> str:
+        """Use one spelling rule for renaming and unit lookup."""
+        return re.sub(r"[\s\[\]()/,]", "", header).casefold()
+
+    @staticmethod
+    def _unit_suffix(header: str) -> str:
+        """Identify explicit unit suffixes without folding SI prefix case."""
+        match = re.search(
+            r"(?:/|\[|\(|,\s*|\s+)"
+            r"((?:[pnumkMGTµμ]?(?:A|V|W|Hz|Ohm|ohm|s)(?:\.?h)?"
+            r"|AH|WH|C|°C|degC|h|S|v|h:m:s))\s*[\])]?$",
+            header.strip(),
+        )
+        return match.group(1) if match else ""
+
+    @classmethod
+    def _unit_spelling_matches(cls, source: str, alias: str) -> bool:
+        unit = cls._unit_suffix(alias)
+        compact = re.sub(r"[\s\[\]()/,]", "", source)
+        return not unit or compact.endswith(unit)
+
+    def _resolve_header(self, column: str) -> tuple:
+        if not isinstance(column, str):
+            raise ValueError("Column headers must be strings")
+        candidates = [
+            (target, alias)
+            for target, aliases in self.standard_headers.items()
+            for alias in [target, *aliases]
+            if self._header_key(column) == self._header_key(alias)
+        ]
+        compatible = [(target, alias) for target, alias in candidates
+                      if self._unit_spelling_matches(column, alias)]
+        if candidates and not compatible:
+            raise ValueError(
+                f"Ambiguous unit spelling in {column!r}; preserve SI unit case"
+            )
+        if len({target for target, _ in compatible}) > 1:
+            raise ValueError(f"Conflicting header aliases for {column!r}")
+        return compatible[0] if compatible else (column.strip(), None)
+
+    def _configured_value(self, mapping: dict, column: str, label: str,
+                          allow_equivalent: bool = False):
+        matches = [value for alias, value in mapping.items()
+                   if self._header_key(column) == self._header_key(alias)
+                   and self._unit_spelling_matches(column, alias)]
+        if len(matches) > 1 and (
+            not allow_equivalent or any(value != matches[0] for value in matches[1:])
+        ):
+            raise ValueError(f"Duplicate or conflicting {label} keys for {column!r}")
+        return matches[0] if matches else None
+
+    def _time_columns(self) -> set:
+        return (set(self.standard_time) | set(self._HEADER_TIME_SECONDS)
+                | set(self.standard_headers.get("Time [s]", [])))
+
+    def _matches_any(self, column: str, aliases) -> bool:
+        return any(self._header_key(column) == self._header_key(alias)
+                   and self._unit_spelling_matches(column, alias)
+                   for alias in aliases)
+
     def _validate_time_units(self, time_units: Optional[dict]) -> dict:
-        """Reject unit guesses and conflicting declarations before importing."""
+        """Resolve configuration spellings and reject conflicting declarations."""
         if time_units is None:
             time_units = {}
         if not isinstance(time_units, dict):
             raise ValueError("time_units must be a dictionary of column names to units")
-        time_columns = (set(self.standard_time) | set(self._HEADER_TIME_SECONDS)
-                        | set(self.standard_headers.get("Time [s]", [])))
         normalized = {}
         for column, unit in time_units.items():
-            if not isinstance(column, str) or column.strip() not in time_columns:
+            if (not isinstance(column, str)
+                    or not self._matches_any(column, self._time_columns())):
                 raise ValueError("time_units keys must name configured elapsed columns")
-            column = column.strip()
-            if column in normalized:
-                raise ValueError("Duplicate time_units column after trimming")
             if not isinstance(unit, str) or unit not in self._TIME_UNIT_SECONDS:
                 raise ValueError("time_units must use s, min, h, ms, us, ns, or d")
-            normalized[column] = unit
-
-        for column in time_columns:
-            factors = []
-            if column in self._HEADER_TIME_SECONDS:
-                factors.append(self._HEADER_TIME_SECONDS[column])
-            if column in normalized:
-                factors.append(self._TIME_UNIT_SECONDS[normalized[column]])
-            if column in self.standard_units:
-                factor = self.standard_units[column]
-                if (isinstance(factor, (bool, np.bool_))
-                        or not isinstance(factor, Real) or not np.isfinite(factor)
-                        or factor <= 0):
+            if column.strip() in normalized:
+                raise ValueError("Duplicate time_units column after trimming")
+            normalized[column.strip()] = unit
+        for mapping, label in [(normalized, "time_units"),
+                               (self.standard_units, "standard_units")]:
+            for column in mapping:
+                if not isinstance(column, str):
+                    raise ValueError(f"{label} keys must be column names")
+                factor = mapping[column]
+                if label == "standard_units" and (
+                    isinstance(factor, (bool, np.bool_)) or not isinstance(factor, Real)
+                    or not np.isfinite(factor) or factor <= 0
+                ):
                     raise ValueError(
                         f"standard_units factor for {column!r} must be "
                         "finite and positive"
                     )
-                factors.append(factor)
-            if factors and any(factor != factors[0] for factor in factors[1:]):
-                raise ValueError(f"Conflicting elapsed-time units for {column!r}")
+                self._resolve_header(column)
+                self._configured_value(mapping, column, label)
+        for column in self._time_columns():
+            self._column_conversion(column, normalized)
         return normalized
+
+    def _column_conversion(self, column: str, time_units: dict) -> tuple:
+        declared = self._configured_value(
+            self._HEADER_TIME_SECONDS, column, "declared time units", True)
+        factor = self._configured_value(self.standard_units, column, "standard_units")
+        unit = self._configured_value(time_units, column, "time_units")
+        is_time = (self._matches_any(column, self.standard_time)
+                   or declared is not None or unit is not None
+                   or (factor is not None
+                       and self._matches_any(column, self._time_columns())))
+        if not is_time:
+            return False, factor
+        if factor is not None and (
+            isinstance(factor, (bool, np.bool_)) or not isinstance(factor, Real)
+            or not np.isfinite(factor) or factor <= 0
+        ):
+            raise ValueError(
+                f"standard_units factor for {column!r} must be finite and positive"
+            )
+        factors = [value for value in (
+            declared, factor, self._TIME_UNIT_SECONDS.get(unit)
+        ) if value is not None]
+        if factors and any(value != factors[0] for value in factors[1:]):
+            raise ValueError(f"Conflicting elapsed-time units for {column!r}")
+        return True, factors[0] if factors else None
+
+    def resolve_columns(self, columns) -> dict:
+        """Describe shared header/unit resolution without changing any data.
+
+        ``is_elapsed`` identifies columns using strict elapsed conversion; legacy
+        bare time aliases retain their existing numeric-only cleanup behavior.
+        Numeric factors are seconds per source unit for elapsed columns.
+        """
+        resolved = {}
+        targets = set()
+        for column in columns:
+            target, alias = self._resolve_header(column)
+            if column in resolved or target in targets:
+                raise ValueError(
+                    "Duplicate standardized column headers; select one source")
+            is_time, factor = self._column_conversion(column, self.time_units)
+            resolved[column] = {
+                "standard_header": target, "matched_alias": alias,
+                "is_elapsed": is_time, "numeric_factor": factor,
+            }
+            targets.add(target)
+        return resolved
+
+    def _measurement_row_provenance(self, data: pd.DataFrame, resolution: dict) -> dict:
+        """Retain raw emptiness and identifiable units rows across numeric coercion."""
+        raw_empty = data.isna().all(axis=1).to_numpy()
+        nonempty = np.flatnonzero(~raw_empty)
+        footers = []
+        if nonempty.size:
+            position = int(nonempty[-1])
+            cells = data.iloc[position].dropna()
+            if len(cells) == 1 and isinstance(cells.iloc[0], str):
+                marker = re.fullmatch(
+                    r'Total Number of Data Lines in the Database:\s*([0-9]+)',
+                    cells.iloc[0].strip(),
+                )
+                if marker:
+                    declared = int(marker.group(1))
+                    # This verifies syntax and parsed-record accounting, not a
+                    # vendor specification. Do not infer units/blank-row adjustments.
+                    if declared != position:
+                        raise ValueError(
+                            f"Declared footer count at row {position} does not match "
+                            "the preceding parsed-record count"
+                        )
+                    footers.append({'position': position, 'declared_count': declared,
+                                    'preceding_parsed_records': position})
+        time_units = set(self._TIME_UNIT_MARKERS) | {"h:m:s", "hh:mm:ss", "ss.xxx"}
+        voltage_units = {'v', 'mv', 'uv', 'µv', 'μv', 'vvs.ref.', 'vvsref'}
+        impedance_units = {'ohm', 'ohms', 'ω', 'mohm', 'kohm'}
+        units = {
+            'Time [s]': time_units,
+            'Current [A]': {'a', 'ma', 'ua', 'µa', 'μa', 'na', 'amp', 'amps',
+                            'ampere', 'amperes'},
+            'Voltage [V]': voltage_units,
+            'Working electrode potential [V]': voltage_units,
+            'Counter electrode potential [V]': voltage_units,
+            'freq [Hz]': {'hz', 'khz', 'mhz'},
+            'ReZ [Ohm]': impedance_units, 'ImZ [Ohm]': impedance_units,
+        }
+        allowed = np.ones(len(data), dtype=bool)
+        seen_unit = np.zeros(len(data), dtype=bool)
+        for column, resolved in resolution.items():
+            markers = units.get(resolved['standard_header'])
+            if markers is None:
+                continue
+            labels = (data[column].astype('string').str.strip().str.lower()
+                      .str.strip('[]').str.replace(r'\s+', '', regex=True))
+            unit = labels.isin(markers).to_numpy(dtype=bool)
+            allowed &= data[column].isna().to_numpy() | unit
+            seen_unit |= unit
+        return {'empty': raw_empty.tolist(), 'units': (allowed & seen_unit).tolist(),
+                'declared_footers': footers}
 
     def look_for_files(self, path_or_file: Path) -> List[Path]:
         """
@@ -303,9 +474,14 @@ class Parser:
 
     def _read_file_bytes(self, file_path: Path) -> bytes:
         """Read text exports or serialize an Excel active sheet in memory."""
+        return self._table_bytes(file_path, file_path.read_bytes())
+
+    @staticmethod
+    def _table_bytes(file_path: Path, source_bytes: bytes) -> bytes:
+        """Decode an immutable source snapshot to the reader's tabular bytes."""
         if file_path.suffix.lower() != ".xlsx":
-            return file_path.read_bytes()
-        workbook = openpyxl.load_workbook(file_path, read_only=True)
+            return source_bytes
+        workbook = openpyxl.load_workbook(BytesIO(source_bytes), read_only=True)
         try:
             stream = StringIO(newline="")
             writer = csv.writer(stream)
@@ -344,40 +520,21 @@ class Parser:
             tuple: A tuple containing the file pointer position of the first keyword
                    match and the equipment type, or (None, None) if no match is found.
         """
-        raw_contents = self._read_file_bytes(file_path)
+        return self._find_words_bytes(
+            file_path, self._read_file_bytes(file_path), cycler)
+
+    def _find_words_bytes(
+        self, file_path: Path, raw_contents: bytes, cycler: str = ""
+    ) -> tuple:
+        """Locate the header in already-read tabular bytes."""
         encoding = chardet.detect(raw_contents)["encoding"]
         if encoding is None:
             raise ValueError(f"Cannot detect encoding for {file_path}")
         contents = raw_contents.decode(encoding)
 
-        if not cycler:
-            # Iterate over each equipment type in the cycler_keywords dictionary
-            for equipment_type, keywords in self.cycler_keywords.items():
-                patterns = []
-                for phrase in keywords:
-                    # Split the phrase into words and escape each word
-                    escaped_words = [re.escape(word) for word in phrase.split()]
-                    # Join the words with '\s*' to allow for flexible whitespace
-                    pattern = r'\s*'.join(escaped_words)
-                    patterns.append(pattern)
-
-                # Compile a regex pattern for the current set of keywords/phrases
-                full_pattern = re.compile("|".join(patterns))
-
-                # Search for the keywords in the file contents
-                match = full_pattern.search(contents)
-                if match:
-                    with BytesIO(raw_contents) as f:
-                        # If a match is found, set the file pointer to that location
-                        # and return the position and the equipment type
-                        line_start = contents.rfind("\n", 0, match.start()) + 1
-                        f.seek(len(contents[:line_start].encode(encoding)))
-                        self.logger.info(f"Keywords found in file, {file_path}, at\
-                                         position {match.start()}, pointer set")
-                        return (f.tell(), encoding, equipment_type)
         # If the line number is given for the header of the line set the file pointer
         # to that location
-        elif str(cycler).isnumeric():
+        if str(cycler).isnumeric():
             cycler = int(cycler)
             with BytesIO(raw_contents) as f:
                 current_line = 1
@@ -391,29 +548,37 @@ class Parser:
                     current_line += 1
                 # The file pointer is now at the beginning of the desired line
                 return (f.tell(), encoding, 'cannot determine')
-        elif cycler in self.cycler_keywords.keys():
-            patterns = []
-            for phrase in self.cycler_keywords[str(cycler)]:
-                # Split the phrase into words and escape each word
-                escaped_words = [re.escape(word) for word in phrase.split()]
-                # Join the words with '\s*' to allow for flexible whitespace
-                pattern = r'\s*'.join(escaped_words)
-                patterns.append(pattern)
-            # Compile a regex pattern for the current set of keywords/phrases
-            full_pattern = re.compile("|".join(patterns))
-            # Search for the keywords in the file contents
-            match = full_pattern.search(contents)
-            if match:
-                with BytesIO(raw_contents) as f:
-                    # If a match is found, set the file pointer to that location and
-                    # return the position and the equipment type
-                    line_start = contents.rfind("\n", 0, match.start()) + 1
-                    f.seek(len(contents[:line_start].encode(encoding)))
-                    self.logger.info(f"Keywords found in file, {file_path}, at position\
-                             {match.start()}, pointer set")
-                    return (f.tell(), encoding, cycler)
-        else:
-            print("This cycler is not yet supported")
+
+        families = (self.cycler_keywords if not cycler else
+                    {cycler: self.cycler_keywords.get(cycler, [])})
+        delimiter = ',' if file_path.suffix.lower() in {'.csv', '.xlsx'} else '\t'
+        known_headers = {self._header_key(alias)
+                         for target, aliases in self.standard_headers.items()
+                         for alias in [target, *aliases]}
+        for equipment_type, keywords in families.items():
+            if not keywords:
+                continue
+            patterns = [r'\s*'.join(re.escape(word) for word in phrase.split())
+                        for phrase in keywords]
+            pattern = re.compile('|'.join(patterns), re.IGNORECASE)
+            checked_lines = set()
+            for match in pattern.finditer(contents):
+                line_start = contents.rfind('\n', 0, match.start()) + 1
+                if line_start in checked_lines:
+                    continue
+                checked_lines.add(line_start)
+                line_end = contents.find('\n', line_start)
+                line = contents[line_start:line_end if line_end >= 0 else None]
+                fields = next(csv.reader([line], delimiter=delimiter))
+                recognized = {self._header_key(field) for field in fields
+                              if self._header_key(field) in known_headers}
+                # A keyword in prose or a metadata value is not a table header.
+                # Keep invalid measurements/duplicate columns for later validation.
+                if len(fields) < 2 or len(recognized) < 2:
+                    continue
+                pointer = len(contents[:line_start].encode(encoding))
+                self.logger.info("Recognized table header in %s", file_path)
+                return pointer, encoding, equipment_type
 
         # If no match is found, raise an exception
         raise ValueError(f"No recognized data header found in {file_path}")
@@ -433,9 +598,14 @@ class Parser:
         Returns:
             tuple: A tuple containing the metadata part and data part as bytes.
         """
-        name = file_path
+        return self._split_file_bytes(
+            pointer, file_path, save_option, self._read_file_bytes(file_path))
 
-        contents = self._read_file_bytes(file_path)
+    def _split_file_bytes(
+        self, pointer: int, file_path: Path, save_option: str, contents: bytes
+    ) -> tuple:
+        """Split one tabular snapshot; writing is explicitly controlled."""
+        name = file_path
         metadata = contents[:pointer]
         data = contents[pointer:]
 
@@ -612,26 +782,20 @@ class Parser:
             raise ValueError("Duplicate column headers after trimming whitespace")
         # Remember genuinely empty rows before any failed numeric conversion can
         # make invalid nonempty values appear empty to measurement cleanup.
-        empty_rows = data.isna().all(axis=1).to_numpy()
-        time_columns = (set(self.standard_time) | set(self._HEADER_TIME_SECONDS)
-                        | set(self.time_units))
-        explicit_factor_columns = (set(self.standard_units)
-                                   & set(self.standard_headers.get("Time [s]", [])))
-        time_columns |= explicit_factor_columns
-        for col in data.columns:
-            if col in time_columns:
-                factor = self._HEADER_TIME_SECONDS.get(col)
-                if col in self.time_units:
-                    factor = self._TIME_UNIT_SECONDS[self.time_units[col]]
-                elif col in self.standard_units:
-                    factor = self.standard_units[col]
+        empty_rows = data.isna().all(axis=1).to_numpy(copy=True)
+        resolutions = self.resolve_columns(data.columns)
+        data.attrs['_pbdp_raw_rows'] = self._measurement_row_provenance(
+            data, resolutions)
+        for footer in data.attrs['_pbdp_raw_rows']['declared_footers']:
+            empty_rows[footer['position']] = True
+        for col, resolution in resolutions.items():
+            factor = resolution["numeric_factor"]
+            if resolution["is_elapsed"]:
                 data[col] = self._elapsed_time_seconds(data[col], empty_rows, factor)
                 self.logger.info("Elapsed time normalized to seconds")
-            elif col in self.standard_units:
+            elif factor is not None:
                 # Convert values in columns with standard units
-                data[col] = pd.to_numeric(data[col], errors="coerce") * (
-                    self.standard_units[col]
-                )
+                data[col] = pd.to_numeric(data[col], errors="coerce") * factor
                 self.logger.info(f"Units converted to standard for {col}")
 
         return data
@@ -650,39 +814,15 @@ class Parser:
             pd.DataFrame: A new DataFrame with column headers converted
                             according to standard_headers.
         """
-        def normalize_header(header):
-            """Normalize a header to a common format."""
-            # Lowercase and remove special characters
-            header = header.lower()
-            header = re.sub(r'\s+|\[|\]|/|,', '', header)
-            return header
-
-        # Get the original column names
-        original_headers = data.columns
-        # Create a dictionary to store the new header names
-        new_headers = {}
-        #normalize headers in the document
-        for col in original_headers:
-            normalized_col = normalize_header(col)
-            matched = False
-
-            for header, values in self.standard_headers.items():
-                normalized_values = [normalize_header(value) for value in values]
-                # Check if the original header matches the mapping
-                if normalized_col in normalized_values:
-                    new_headers[col] = header
-                    matched = True
-                    break
-
-            if not matched:
-                self.logger.info(f"No standard header found for: {col}")
-
+        resolutions = self.resolve_columns(data.columns)
+        provenance = data.attrs.get('_pbdp_raw_rows')
+        if provenance is None:
+            provenance = self._measurement_row_provenance(data, resolutions)
+        new_headers = {column: resolution["standard_header"]
+                       for column, resolution in resolutions.items()}
         self.logger.info("Headers converted to standard")
-        # Rename columns using the new mapping
-        mapped_headers = [new_headers.get(col, col) for col in data.columns]
-        if len(mapped_headers) != len(set(mapped_headers)):
-            raise ValueError("Duplicate standardized column headers; select one source")
         data = data.rename(columns=new_headers)
+        data.attrs['_pbdp_raw_rows'] = provenance
 
         # Convert columns with new headers to numeric data types
         for col in data.columns:
@@ -692,6 +832,38 @@ class Parser:
         self.logger.info("Columns converted to numeric")
 
         return data
+
+    @staticmethod
+    def inspect_measurement_schema(data: pd.DataFrame) -> dict:
+        """Identify mixed measurement rows in a standardized table, without edits."""
+        eis_columns = [column for column in ["freq [Hz]", "ReZ [Ohm]", "ImZ [Ohm]"]
+                       if column in data.columns]
+        voltage_columns = [column for column in [
+            "Voltage [V]", "Working electrode potential [V]",
+            "Counter electrode potential [V]",
+        ] if column in data.columns]
+        cycling_columns = [column for column in ["Time [s]", "Current [A]"]
+                           if column in data.columns] + voltage_columns
+        cycling = np.zeros(len(data), dtype=bool)
+        if (all(column in data.columns for column in ["Time [s]", "Current [A]"])
+                and voltage_columns):
+            core = data[["Time [s]", "Current [A]"]].apply(
+                pd.to_numeric, errors="coerce")
+            voltage = data[voltage_columns].apply(pd.to_numeric, errors="coerce")
+            core_finite = np.isfinite(core.to_numpy(dtype=float, na_value=np.nan))
+            voltage_finite = np.isfinite(voltage.to_numpy(
+                dtype=float, na_value=np.nan))
+            cycling = core_finite.all(axis=1) & voltage_finite.any(axis=1)
+        cycling_only = []
+        if eis_columns:
+            eis = data[eis_columns].apply(pd.to_numeric, errors="coerce")
+            has_eis_value = np.isfinite(eis.to_numpy(
+                dtype=float, na_value=np.nan)).any(axis=1)
+            cycling_only = np.flatnonzero(cycling & ~has_eis_value).tolist()
+        kind = ("mixed" if cycling_only else "eis" if eis_columns else
+                "cycling" if cycling_columns else "unknown")
+        return {"kind": kind, "cycling_only_rows": cycling_only,
+                "eis_columns": eis_columns, "cycling_columns": cycling_columns}
 
     def remove_unwanted(self, data: pd.DataFrame) -> pd.DataFrame:
         """
@@ -704,16 +876,47 @@ class Parser:
             pd.DataFrame: A new DataFrame with unwanted rows and columns removed.
         """
 
+        schema = self.inspect_measurement_schema(data)
+        if schema["kind"] == "mixed":
+            first = schema["cycling_only_rows"][0]
+            raise ValueError(
+                "Mixed cycling/EIS measurements: valid cycling rows without EIS "
+                f"values begin at row {first}. Select separate measurement tables "
+                "before import; no rows have been removed."
+            )
         # Step numbers can legitimately jump, and optional sensors can be absent.
         # Neither condition justifies deleting otherwise valid measurements.
         unnamed = data.columns.str.contains("^Unnamed:")
-        data = data.loc[:, ~unnamed].dropna(how="all")
+        data = data.loc[:, ~unnamed]
         required = ["Time [s]", "Current [A]", "Voltage [V]",
                     "Working electrode potential [V]",
                     "Counter electrode potential [V]"]
         if "freq [Hz]" in data.columns:
             required = ["freq [Hz]", "ReZ [Ohm]", "ImZ [Ohm]"]
         available = [col for col in required if col in data.columns]
+        provenance = data.attrs.get('_pbdp_raw_rows')
+        footer_rows = np.zeros(len(data), dtype=bool)
+        if provenance is not None:
+            if len(provenance['empty']) != len(data):
+                raise ValueError(
+                    "Raw row provenance no longer matches the measurement table")
+            raw_empty = np.asarray(provenance['empty'], dtype=bool)
+            raw_units = np.asarray(provenance['units'], dtype=bool)
+            for footer in provenance.get('declared_footers', []):
+                footer_rows[footer['position']] = True
+            measured = (data[available].notna().any(axis=1).to_numpy() if available
+                        else np.zeros(len(data), dtype=bool))
+            first = np.flatnonzero(measured)
+            prefix = np.arange(len(data)) < (int(first[0]) if first.size else len(data))
+            invalid = (~raw_empty & ~footer_rows & ((prefix & ~raw_units)
+                       | (data.isna().all(axis=1).to_numpy() & ~(prefix & raw_units))))
+            positions = np.flatnonzero(invalid)
+            if positions.size:
+                raise ValueError(
+                    f"Invalid nonempty measurement row {positions[0]}; "
+                    "numeric conversion must not erase source data"
+                )
+        data = data.iloc[~footer_rows].dropna(how="all")
         if available and not data.empty:
             measured = data[available].notna().any(axis=1).to_numpy()
             first = np.flatnonzero(measured)
@@ -723,7 +926,9 @@ class Parser:
             if count:
                 self.logger.warning("Removed %s leading non-measurement rows", count)
                 data = data.iloc[count:]
-        return data.reset_index(drop=True)
+        data = data.reset_index(drop=True)
+        data.attrs.pop('_pbdp_raw_rows', None)
+        return data
 
     def find_start_time(self, metadata: str) -> str:
         """
@@ -945,6 +1150,28 @@ class Parser:
         self.logger.info("Sanity check passed")
         return 0
 
+    def apply_current_direction(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Apply an explicit source-mode convention, retaining original current."""
+        if self.current_mode_column is not None:
+            data = normalize_current_direction(
+                data, self.current_mode_column, self.current_mode_map,
+                current_epsilon=self.current_epsilon)
+        data.attrs['pbdp_current_epsilon'] = float(self.current_epsilon)
+        return data
+
+    def inspect_file(
+        self, source: Path, cycler: str = "", state_option: str = "",
+        dtype: Optional[dict] = None,
+    ) -> dict:
+        """Inspect one source without writing files; return a JSON-ready report.
+
+        Reports include source identity, metadata, mappings, conversion choices,
+        row accounting and actionable diagnostics. Import failures are returned
+        with status ``error``; data_importer continues to raise validation errors.
+        """
+        from .inspection import inspect_file
+        return inspect_file(self, source, cycler, state_option, dtype)
+
     def data_importer(
         self,
         path_or_file: Path,
@@ -991,6 +1218,7 @@ class Parser:
             data = self.change_units(data)
             data = self.change_headers(data)
             data = self.remove_unwanted(data)
+            data = self.apply_current_direction(data)
             # Missing start metadata is recoverable; invalid measurements are not.
             self.sanity_check(data)
             if "Time [s]" in data.columns:
@@ -1000,7 +1228,7 @@ class Parser:
                     self.logger.warning("Absolute time unavailable for %s: %s", file, e)
             self.logger.info(f"Data imported from file, {file}")
             if state_option == "yes":
-                data = add_state_label(data)
+                data = add_state_label(data, current_epsilon=self.current_epsilon)
                 self.logger.info(f"State labels added to file, {file}")
             # Save the file if the option is set to 'save all' or 'save'
             if save_option in ["save all", "save"]:

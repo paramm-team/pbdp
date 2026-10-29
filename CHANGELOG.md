@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased - elapsed-time correction
+## Unreleased - import correctness and inspection
 
 - Require explicit source units for numeric values, including numeric strings,
   in ambiguous elapsed-time columns such as Maccor `TestTime`. Configure them
@@ -11,8 +11,34 @@
 - Retain duration-string parsing and explicit hours-to-seconds conversion. Add
   synthetic regressions for time values, invalid measurements, absolute
   timestamps and classification after import.
-- Clarify that state classification requires a signed-current convention.
-  Vendor mode fields are not used to infer current direction.
+- Use one header resolver for unit conversion and standard names, tolerating
+  supported capitalization/spacing variants while preserving SI prefix case.
+  Reject conflicting alias/unit declarations and duplicate standardized targets.
+- Detect mixed cycling/EIS schemas before cleanup can discard valid cycling rows;
+  reject them explicitly rather than selecting the EIS subset silently.
+- Require table-header evidence when detecting case variants in preambles.
+  Preserve raw row provenance through numeric conversion so invalid text cannot
+  become an apparently empty row and disappear during cleanup; reject invalid
+  or nonpositive unit factors before importing.
+- Recognize an explicit terminal record-count footer only when it occupies a
+  single cell and its count agrees with the preceding parsed records. Inspection
+  distinguishes these footers from genuinely empty and leading units rows.
+- Add caller-declared vendor-mode mappings for current direction, retaining the
+  imported ampere values in `Source current [A]`. Reject unknown modes and rest
+  codes inconsistent with the configured current threshold.
+- Make rest thresholds inclusive and propagate explicit settings through state
+  labelling, phase classification, segmentation and rest extension.
+- Classify CC/CV using full plateau range and elapsed duration, without default
+  row-count lookbacks. Split direction changes/repeated timestamps and optional
+  caller-declared recording gaps; preserve these boundaries in extracted segments.
+  Explicit `rest_t`/`cc_t` retain the legacy row-context gate. Phase labels may
+  change; review them against the experimental protocol after upgrading.
+- Add `classification_options` to segmentation and record settings in DataFrame
+  attributes. Existing complete labels remain unchanged unless options are passed.
+- Add read-only `Parser.inspect_file` and `python -m pbdp inspect`, reporting
+  source hashes, metadata, mappings, unit decisions, cleanup, normalization and
+  structured errors. Reports can contain sensitive source metadata; no report
+  files are written automatically.
 
 ## 0.1.1 (2026-10-28) - final maintenance release
 

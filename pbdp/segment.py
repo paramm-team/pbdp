@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from .states import find_cc_and_cv
+from .states import continuity_breaks, find_cc_and_cv, get_current_epsilon
 import logging
 
 
@@ -19,13 +19,19 @@ def group_by_input_state(data: pd.DataFrame, input_str: str,
     logger = logging.getLogger(logger_name)
     if input_str == "battery":
         # Group the DataFrame by consecutive values in "Battery State" column
-        groups = (data["Battery State"] != data["Battery State"].shift()).cumsum()
+        groups = np.cumsum(
+            data["Battery State"].ne(data["Battery State"].shift()).to_numpy()
+            | continuity_breaks(data)
+        )
         grouped_df = data.groupby(groups)
         group_list = [group for _, group in grouped_df]
         logger.info("Data grouped by Battery State")
     elif input_str == "CCCV":
         # Group the DataFrame by consecutive values in "CCCV" column
-        groups = (data["CCCV"] != data["CCCV"].shift()).cumsum()
+        groups = np.cumsum(
+            data["CCCV"].ne(data["CCCV"].shift()).to_numpy()
+            | continuity_breaks(data)
+        )
         grouped_df = data.groupby(groups)
         group_list = [group for _, group in grouped_df]
         logger.info("Data grouped by CCCV")
@@ -35,6 +41,18 @@ def group_by_input_state(data: pd.DataFrame, input_str: str,
         logger.warning(f"Input string not recognized: {input_str}, no grouping")
 
     return group_list
+
+
+def _mask_intervals(mask, boundaries):
+    """Find positional runs without crossing a recording or direction boundary."""
+    selected = mask.fillna(False).to_numpy(dtype=bool)
+    if not len(selected):
+        return np.array([], dtype=int), np.array([], dtype=int)
+    starts = np.flatnonzero(selected & (np.r_[True, ~selected[:-1]] | boundaries))
+    ends = np.flatnonzero(
+        selected & (np.r_[~selected[1:], True] | np.r_[boundaries[1:], True])
+    )
+    return starts, ends
 
 
 def find_periods(
@@ -108,12 +126,9 @@ def find_periods(
     logger.info(f"First mask: {first_mask}")
 
     # Adjacency is defined by row position, never by index arithmetic.
-    start_indices_first = np.flatnonzero(
-        (first_mask & ~first_mask.shift(1, fill_value=False)).fillna(False)
-    )
-    end_indices_first = np.flatnonzero(
-        (first_mask & ~first_mask.shift(-1, fill_value=False)).fillna(False)
-    )
+    boundaries = continuity_breaks(data)
+    recording_boundaries = continuity_breaks(data, include_direction=False)
+    start_indices_first, end_indices_first = _mask_intervals(first_mask, boundaries)
     logger.info(f"Start indices: {start_indices_first}")
     logger.info(f"End indices: {end_indices_first}")
 
@@ -126,7 +141,11 @@ def find_periods(
         # Combine adjusted start and end indices to get the ranges of pulses
         pulse_periods = []
         for pulse_start, pulse_end in pulse_indices:
-            following = data["CCCV"].iloc[pulse_end + 1:pulse_end + pulse_t + 1]
+            lookahead_stop = min(len(data), pulse_end + pulse_t + 1)
+            breaks = np.flatnonzero(boundaries[pulse_end + 1:lookahead_stop])
+            if breaks.size:
+                lookahead_stop = pulse_end + 1 + breaks[0]
+            following = data["CCCV"].iloc[pulse_end + 1:lookahead_stop]
             if not following.eq("CV").any():
                 pulse_periods.append(data.iloc[pulse_start:pulse_end + 1])
         return pulse_periods
@@ -169,29 +188,33 @@ def find_periods(
                     data["Voltage [V]"].round(2) == volt
                 )
     # Identify the start and end of second input periods
-    start_indices_second = np.flatnonzero(
-        (second_mask & ~second_mask.shift(1, fill_value=False)).fillna(False)
-    )
-    end_indices_second = np.flatnonzero(
-        (second_mask & ~second_mask.shift(-1, fill_value=False)).fillna(False)
-    )
+    start_indices_second, end_indices_second = _mask_intervals(second_mask, boundaries)
 
     second_indices = list(zip(start_indices_second, end_indices_second))
     logger.info(f"Second indices: {second_indices}")
 
     # Combine adjusted start and end indices to get the ranges of the periods
     periods = []
+    second_ends = dict(second_indices)
+    current = data['Current [A]'].to_numpy(dtype=float)
+    epsilon = get_current_epsilon(data)
     for first_start, first_end in first_indices:
-        for second_start, second_end in second_indices:
-            if first_end == second_start - 1:
-                periods.append(data.iloc[first_start:second_end + 1])
+        second_start = first_end + 1
+        if second_start not in second_ends or recording_boundaries[second_start]:
+            continue
+        reverse_direction = (
+            abs(current[first_end]) > epsilon and abs(current[second_start]) > epsilon
+            and np.sign(current[first_end]) != np.sign(current[second_start])
+        )
+        if not reverse_direction:
+            periods.append(data.iloc[first_start:second_ends[second_start] + 1])
 
     logger.info(f"Periods: {periods}")
     return periods
 
 
 def segment_data(data: pd.DataFrame, requests: list, reset: bool = False,
-                 logger_name: str = 'pbdp_logger') -> list:
+                 logger_name: str = 'pbdp_logger', classification_options=None) -> list:
     """
     Segments the battery data based on the provided requests.
 
@@ -204,6 +227,11 @@ def segment_data(data: pd.DataFrame, requests: list, reset: bool = False,
         list: A list of filtered DataFrames representing the segmented data.
 
     Notes:
+        Complete existing labels are preserved unless classification_options is
+        supplied. An explicit dictionary reclassifies a copy using find_cc_and_cv.
+        Missing labels inherit recorded current and classification settings.
+        Frame attrs retain these settings in memory; CSV does not preserve attrs.
+        Supply classification_options after a CSV reload to restore them.
         Power requests select contiguous non-rest intervals lasting at least
         10 seconds, with consecutive power changes no greater than 0.01 W.
         An optional signed wattage filters power rounded to two decimal places.
@@ -230,11 +258,23 @@ def segment_data(data: pd.DataFrame, requests: list, reset: bool = False,
             "required columns not found in dataframe"
         )
 
-    # Check if required columns are present in dataframe
-    required_cols = ["CCCV", "Battery State"]
-    for col in required_cols:
-        if col not in data.columns:
-            data = find_cc_and_cv(data)
+    allowed = {'current_epsilon', 'voltage_epsilon', 'time_t',
+               'rest_t', 'cc_t', 'max_gap_s'}
+    if classification_options is not None and (
+        not isinstance(classification_options, dict)
+        or set(classification_options) - allowed
+    ):
+        raise ValueError('classification_options must contain find_cc_and_cv settings')
+    if (classification_options is not None
+            or any(col not in data.columns for col in ['CCCV', 'Battery State'])):
+        recorded = data.attrs.get('pbdp_classification', {})
+        if not isinstance(recorded, dict) or set(recorded) - allowed:
+            raise ValueError('Invalid recorded classification_options')
+        options = dict(recorded)
+        options['current_epsilon'] = get_current_epsilon(data)
+        if classification_options is not None:
+            options.update(classification_options)
+        data = find_cc_and_cv(data.copy(), logger_name=logger_name, **options)
 
     logger.info('Required columns found in dataframe')
 
@@ -461,14 +501,16 @@ def segment_data(data: pd.DataFrame, requests: list, reset: bool = False,
                     raise ValueError(error)
             power = data["Voltage [V]"] * data["Current [A]"]
             power_data = data.assign(**{"Power [W]": power})
-            active = data["Current [A]"].abs().ge(0.001) & np.isfinite(power)
+            active = (data["Current [A]"].abs().gt(get_current_epsilon(data))
+                      & np.isfinite(power))
             if target is not None:
                 active &= power.round(2).eq(target)
             # Rest rows and excluded values break runs even when neighboring
             # accepted values happen to have the same power. Group positionally
             # so repeated source index labels remain valid.
             groups = (power.diff().abs().gt(0.01)
-                      | active.ne(active.shift(fill_value=False))).cumsum()
+                      | active.ne(active.shift(fill_value=False))
+                      | continuity_breaks(data)).cumsum()
             selected = np.flatnonzero(active.to_numpy())
             intervals = power_data.iloc[selected].groupby(
                 groups.to_numpy()[selected], sort=False
@@ -522,7 +564,7 @@ def reset_time(data: list, logger_name: str = 'pbdp_logger') -> pd.DataFrame:
 
 def find_rest(data: pd.DataFrame,
               segments: list,
-              current_epsilon: float = 0.001,
+              current_epsilon=None,
               logger_name: str = 'pbdp_logger'
               ) -> list:
     """
@@ -537,7 +579,14 @@ def find_rest(data: pd.DataFrame,
                              'Current [A]' column.
         segments (list): List of DataFrames, each representing a segment to process.
         current_epsilon (float): Threshold for defining a rest period based on the
-                                 current. Defaults to 0.001.
+                                 current. An explicit value overrides recorded
+                                 thresholds. Otherwise segment settings take
+                                 precedence over source settings and 0.001.
+
+    Notes:
+        Each segment's recorded classification settings control recording gaps.
+        This also applies when segment_data classified a copy of the source.
+        Returned slices retain the effective settings; inputs are not modified.
 
     Returns:
         list: List of DataFrames, each including the original segment and its adjacent
@@ -547,7 +596,7 @@ def find_rest(data: pd.DataFrame,
 
     if not data.index.is_unique:
         raise ValueError("find_rest requires unique source index labels")
-    rest = data["Current [A]"].abs().lt(current_epsilon).to_numpy()
+    contexts = {}
 
     def process_segment(segment: pd.DataFrame):
         if segment.empty:
@@ -555,13 +604,33 @@ def find_rest(data: pd.DataFrame,
         positions = data.index.get_indexer(segment.index)
         if (positions < 0).any() or (np.diff(positions) != 1).any():
             raise ValueError("Each segment must be consecutive rows of the source")
+        context = data.copy(deep=False)
+        for name in ['pbdp_current_epsilon', 'pbdp_classification']:
+            if name in segment.attrs:
+                context.attrs[name] = segment.attrs[name]
+        epsilon = get_current_epsilon(context, current_epsilon)
+        settings = context.attrs.get('pbdp_classification', {})
+        if not isinstance(settings, dict):
+            raise ValueError('pbdp_classification metadata must be a dictionary')
+        # Cache masks for repeated settings rather than scanning a recording
+        # again for every extracted segment. Continuity validates the gap value.
+        key = (epsilon, repr(settings.get('max_gap_s')))
+        if key not in contexts:
+            contexts[key] = (
+                data['Current [A]'].abs().le(epsilon).to_numpy(),
+                continuity_breaks(context, include_direction=False),
+            )
+        rest, boundaries = contexts[key]
         start, end = positions[0], positions[-1]
         # Extend through adjacent rest rows only; never cross another activity.
-        while start > 0 and rest[start - 1]:
+        while start > 0 and rest[start - 1] and not boundaries[start]:
             start -= 1
-        while end + 1 < len(data) and rest[end + 1]:
+        while end + 1 < len(data) and rest[end + 1] and not boundaries[end + 1]:
             end += 1
-        return data.iloc[start:end + 1]
+        result = data.iloc[start:end + 1].copy(deep=False)
+        result.attrs = dict(context.attrs)
+        result.attrs['pbdp_current_epsilon'] = epsilon
+        return result
 
     # Process each segment in the list
     updated_segments = [process_segment(segment) for segment in segments]
