@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased - elapsed-time correction
+
+- Require explicit source units for numeric values, including numeric strings,
+  in ambiguous elapsed-time columns such as Maccor `TestTime`. Configure them
+  with `Parser(time_units={"TestTime": "min"})` for minutes, or `"s"` for seconds;
+  the header alone does not establish the unit. Version 0.1.1 passed these values
+  to pandas as implicit nanoseconds, compressing the time axis and preventing
+  meaningful CC/CV detection. Reimport affected originals with the correct unit.
+- Retain duration-string parsing and explicit hours-to-seconds conversion. Add
+  synthetic regressions for time values, invalid measurements, absolute
+  timestamps and classification after import.
+- Clarify that state classification requires a signed-current convention.
+  Vendor mode fields are not used to infer current direction.
+
 ## 0.1.1 (2026-10-28) - final maintenance release
 
 ### Data correctness and preservation

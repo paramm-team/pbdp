@@ -1,6 +1,7 @@
 import re
 from datetime import datetime
 from io import BytesIO, StringIO
+from numbers import Real
 from tempfile import NamedTemporaryFile
 
 import chardet
@@ -35,7 +36,24 @@ class Parser:
         standard_time (list): List of standard time columns to be processed.
         standard_headers (dict): Dictionary mapping standard column headers to
                                     their variations.
+        time_units (dict): Explicit source units for numeric elapsed-time columns.
     """
+
+    _TIME_UNIT_SECONDS = {
+        "s": 1, "min": 60, "h": 3600, "ms": 1e-3,
+        "us": 1e-6, "ns": 1e-9, "d": 86400,
+    }
+    _HEADER_TIME_SECONDS = {
+        "TestTime(s)": 1, "time/s": 1, "Time (s)": 1, "Time, (s)": 1,
+        "Total Time S": 1, "Time [s]": 1, "Run Time (h)": 3600,
+    }
+    _TIME_UNIT_MARKERS = {
+        **_TIME_UNIT_SECONDS,
+        "sec": 1, "second": 1, "seconds": 1,
+        "minute": 60, "minutes": 60,
+        "hr": 3600, "hrs": 3600, "hour": 3600, "hours": 3600,
+        "day": 86400, "days": 86400,
+    }
 
     def __init__(
         self,
@@ -44,6 +62,7 @@ class Parser:
         standard_time: list = [],
         standard_headers: dict = {},
         logger_name: str = "pbdp_logger",
+        time_units: Optional[dict] = None,
     ):
         self.logger = logging.getLogger(logger_name)
         """
@@ -60,6 +79,10 @@ class Parser:
             logger_name (str): Name of the logger to use, defaults to "pbdp_logger"
                                which is the default logger. That can be initialized
                                using pbdp.create_logger() function.
+            time_units (dict, optional): Raw elapsed-time column names mapped to
+                numeric units: s, min, h, ms, us, ns, or d. Required for numeric
+                values in duration-capable columns without declared header units
+                or a standard_units factor. Duration strings retain their units.
         """
 
         # Initialize the class variables based on provided arguments.
@@ -193,7 +216,47 @@ class Parser:
             else standard_headers
         )
 
+        self.time_units = self._validate_time_units(time_units)
         self.logger.info("Parser initialized")
+
+    def _validate_time_units(self, time_units: Optional[dict]) -> dict:
+        """Reject unit guesses and conflicting declarations before importing."""
+        if time_units is None:
+            time_units = {}
+        if not isinstance(time_units, dict):
+            raise ValueError("time_units must be a dictionary of column names to units")
+        time_columns = (set(self.standard_time) | set(self._HEADER_TIME_SECONDS)
+                        | set(self.standard_headers.get("Time [s]", [])))
+        normalized = {}
+        for column, unit in time_units.items():
+            if not isinstance(column, str) or column.strip() not in time_columns:
+                raise ValueError("time_units keys must name configured elapsed columns")
+            column = column.strip()
+            if column in normalized:
+                raise ValueError("Duplicate time_units column after trimming")
+            if not isinstance(unit, str) or unit not in self._TIME_UNIT_SECONDS:
+                raise ValueError("time_units must use s, min, h, ms, us, ns, or d")
+            normalized[column] = unit
+
+        for column in time_columns:
+            factors = []
+            if column in self._HEADER_TIME_SECONDS:
+                factors.append(self._HEADER_TIME_SECONDS[column])
+            if column in normalized:
+                factors.append(self._TIME_UNIT_SECONDS[normalized[column]])
+            if column in self.standard_units:
+                factor = self.standard_units[column]
+                if (isinstance(factor, (bool, np.bool_))
+                        or not isinstance(factor, Real) or not np.isfinite(factor)
+                        or factor <= 0):
+                    raise ValueError(
+                        f"standard_units factor for {column!r} must be "
+                        "finite and positive"
+                    )
+                factors.append(factor)
+            if factors and any(factor != factors[0] for factor in factors[1:]):
+                raise ValueError(f"Conflicting elapsed-time units for {column!r}")
+        return normalized
 
     def look_for_files(self, path_or_file: Path) -> List[Path]:
         """
@@ -457,6 +520,78 @@ class Parser:
         return pd.read_csv(BytesIO(data), sep=separators[file_ext],
                            encoding=encoding, low_memory=False, dtype=dtype)
 
+    @classmethod
+    def _elapsed_time_seconds(
+        cls, values: pd.Series, empty_rows: np.ndarray,
+        numeric_factor: Optional[float]
+    ) -> pd.Series:
+        """Convert explicitly declared numeric units and intrinsic durations.
+
+        A leading units/missing row can be removed by measurement cleanup. Once
+        elapsed measurements begin, missing or invalid time must fail before
+        cleanup can discard it. Originally wholly empty rows retain the existing
+        cleanup behavior; nonempty values that fail conversion are not exempt.
+        """
+        if pd.api.types.is_datetime64_any_dtype(values.dtype):
+            raise ValueError(
+                f"Calendar datetime values in {values.name!r} are not elapsed time"
+            )
+        invalid_numeric_type = (
+            pd.api.types.is_bool_dtype(values.dtype)
+            or pd.api.types.is_complex_dtype(values.dtype)
+            or (pd.api.types.is_object_dtype(values.dtype)
+                and values.map(lambda value: isinstance(
+                    value, (bool, np.bool_, complex, np.complexfloating))).any())
+        )
+        if invalid_numeric_type:
+            raise ValueError(
+                f"Boolean or complex values in {values.name!r} are not elapsed time"
+            )
+        if pd.api.types.is_timedelta64_dtype(values.dtype):
+            seconds = values.dt.total_seconds()
+        else:
+            seconds = pd.to_numeric(values, errors="coerce").astype(float)
+            numeric = np.isfinite(seconds.to_numpy(dtype=float))
+            if numeric.any() and numeric_factor is None:
+                raise ValueError(
+                    f"Ambiguous numeric elapsed time in {values.name!r}; declare "
+                    f"its source unit with time_units={{{values.name!r}: 's'}} "
+                    "(use 'min', 'h', 'ms', 'us', 'ns', or 'd' as appropriate)"
+                )
+            if numeric_factor is not None:
+                seconds *= numeric_factor
+            # Keep missing values for validation; older pandas cannot parse pd.NA.
+            remaining = np.flatnonzero(
+                (seconds.isna() & values.notna()).to_numpy()
+            )
+            if remaining.size:
+                durations = pd.to_timedelta(values.iloc[remaining], errors="coerce")
+                seconds.iloc[remaining] = durations.dt.total_seconds().to_numpy()
+
+        finite = np.isfinite(seconds.to_numpy(dtype=float))
+        measured = np.flatnonzero(finite)
+        first = int(measured[0]) if measured.size else len(values)
+        units = set(cls._TIME_UNIT_MARKERS) | {"h:m:s", "hh:mm:ss"}
+        unit_labels = units | {f"[{unit}]" for unit in units}
+        labels = values.astype("string").str.strip().str.lower()
+        for label in labels.iloc[:first].dropna().unique():
+            unit = label.strip("[]")
+            if (unit in cls._TIME_UNIT_MARKERS and numeric_factor is not None
+                    and cls._TIME_UNIT_MARKERS[unit] != numeric_factor):
+                raise ValueError(
+                    f"Conflicting leading elapsed-time unit {label!r} "
+                    f"in {values.name!r}"
+                )
+        leading = (values.isna() | labels.isin(unit_labels)).to_numpy(dtype=bool)
+        allowed_prefix = (np.arange(len(values)) < first) & leading
+        invalid = np.flatnonzero(~finite & ~(allowed_prefix | empty_rows))
+        if invalid.size:
+            raise ValueError(
+                f"Invalid elapsed time in {values.name!r} at row {invalid[0]}; "
+                "expected finite numbers with declared units or duration strings"
+            )
+        return seconds
+
     def change_units(
         self,
         data: pd.DataFrame,
@@ -475,22 +610,29 @@ class Parser:
         data = data.rename(columns=lambda name: name.strip())
         if not data.columns.is_unique:
             raise ValueError("Duplicate column headers after trimming whitespace")
+        # Remember genuinely empty rows before any failed numeric conversion can
+        # make invalid nonempty values appear empty to measurement cleanup.
+        empty_rows = data.isna().all(axis=1).to_numpy()
+        time_columns = (set(self.standard_time) | set(self._HEADER_TIME_SECONDS)
+                        | set(self.time_units))
+        explicit_factor_columns = (set(self.standard_units)
+                                   & set(self.standard_headers.get("Time [s]", [])))
+        time_columns |= explicit_factor_columns
         for col in data.columns:
-            if col in self.standard_units:
+            if col in time_columns:
+                factor = self._HEADER_TIME_SECONDS.get(col)
+                if col in self.time_units:
+                    factor = self._TIME_UNIT_SECONDS[self.time_units[col]]
+                elif col in self.standard_units:
+                    factor = self.standard_units[col]
+                data[col] = self._elapsed_time_seconds(data[col], empty_rows, factor)
+                self.logger.info("Elapsed time normalized to seconds")
+            elif col in self.standard_units:
                 # Convert values in columns with standard units
                 data[col] = pd.to_numeric(data[col], errors="coerce") * (
                     self.standard_units[col]
                 )
                 self.logger.info(f"Units converted to standard for {col}")
-            elif col in self.standard_time:
-                if col == "Run Time (h)":
-                    # Convert hours to seconds
-                    data[col] = pd.to_numeric(data[col], errors="coerce") * 3600
-                    self.logger.info("Time converted to seconds from Run Time (h)")
-                else:
-                    # Convert a string representing a time duration to seconds
-                    data[col] = pd.to_timedelta(data[col]).dt.total_seconds()
-                    self.logger.info("Time converted to seconds from string")
 
         return data
 
