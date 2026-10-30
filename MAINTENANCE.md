@@ -8,6 +8,12 @@ The source, attribution, examples and release artifacts remain available under
 the BSD-3-Clause license. This notice does not imply that GitHub has archived the
 team repository.
 
+An unreleased correctness follow-up addresses numeric elapsed units, header
+matching, mixed measurement schemas, explicit current conventions and phase
+thresholds. It also adds read-only import diagnostics. These changes are in the
+source branch, not the v0.1.1 artifacts; see the Unreleased changelog and README
+examples. This follow-up does not reopen a general feature roadmap.
+
 ## Existing experiments
 
 Keep the original instrument exports and record the PBDP version and environment

@@ -33,6 +33,8 @@ jobs:
           cp examples/scripts/quickstart.py "$RUNNER_TEMP/pbdp-quickstart.py"
           cd "$RUNNER_TEMP"
           "$RUNNER_TEMP/pbdp-wheel/bin/python" pbdp-quickstart.py --output-dir pbdp-demo
+          "$RUNNER_TEMP/pbdp-wheel/bin/python" -m pbdp inspect pbdp-demo/synthetic_cycle.csv --states > pbdp-inspection.json
+          "$RUNNER_TEMP/pbdp-wheel/bin/python" -c "import json; r = json.load(open('pbdp-inspection.json')); assert r['status'] == 'ok'; assert r['rows']['retained'] == 11"
           "$RUNNER_TEMP/pbdp-wheel/bin/python" -m pip check
       - run: python -m pip check
 
